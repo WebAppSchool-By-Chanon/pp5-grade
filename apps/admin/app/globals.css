@@ -466,14 +466,6 @@
   align-items: center;
   gap: 0.5rem;
 }
-.pp5-preview-print-hint {
-  padding: 0.4rem 0.75rem;
-  font-size: 0.75rem;
-  color: #92400e;
-  background: #fffbeb;
-  border-bottom: 1px solid #e4e4e7;
-  flex-shrink: 0;
-}
 .pp5-zoom-label-text {
   font-size: 0.75rem;
   color: #52525b;

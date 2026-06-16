@@ -482,25 +482,12 @@ export function Pp5SelectorForm({ classrooms, defaultSemester }: Props) {
             // OR the previously cached preview. User spec 2026-05-20:
             // "ขณะที่รอโหลดพรีวิว ห้ามให้กดปุ่มพิมพ์รายงาน".
             disabled={!canPreview || isLoading}
-            title='ก่อนพิมพ์: ปิด "ส่วนหัวและส่วนท้าย" ในตัวเลือกเพิ่มเติมของหน้าต่างพิมพ์ — ไม่งั้นวรรณยุกต์ของหัวเรื่องที่เบราว์เซอร์แปะให้จะถูกตัด'
             className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Printer className="size-4" aria-hidden />
             พิมพ์รายงาน
           </button>
         </div>
-        {/* Chrome's print dialog injects its own header/footer (page title +
-            URL) above/below our content when "ส่วนหัวและส่วนท้าย" (Headers
-            and footers) is checked — that injected text uses a tiny browser
-            font that clips Thai tone marks. We can't suppress it via CSS
-            (it's a native print-dialog feature, not page content), so the
-            fix is procedural. User report 2026-06-08: "วรรณยุกต์ลอยไปอยู่
-            หน้าด้านบน...ติดไปกับหน้าที่แล้ว". */}
-        <p className="pp5-preview-print-hint">
-          💡 ก่อนพิมพ์ / Save PDF: เปิดตัวเลือก <strong>"เพิ่มเติม"</strong>{" "}
-          ในหน้าต่างพิมพ์ แล้วปิด <strong>"ส่วนหัวและส่วนท้าย"</strong> —
-          ไม่งั้นวรรณยุกต์ของหัวเรื่องที่เบราว์เซอร์แปะเองจะถูกตัด
-        </p>
 
         {/* Preview frame — outer container scrolls HORIZONTALLY only when
             zoom > fit (content wider than container). Vertical scroll
