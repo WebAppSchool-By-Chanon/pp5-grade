@@ -466,6 +466,14 @@
   align-items: center;
   gap: 0.5rem;
 }
+.pp5-preview-print-hint {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.75rem;
+  color: #92400e;
+  background: #fffbeb;
+  border-bottom: 1px solid #e4e4e7;
+  flex-shrink: 0;
+}
 .pp5-zoom-label-text {
   font-size: 0.75rem;
   color: #52525b;
@@ -725,6 +733,18 @@
 }
 .pp5-cover-sig-decision .pp5-cover-check {
   margin-right: 1rem;
+}
+/* Single signature (no deputy director) — center instead of letting the
+   lone box stretch full-width via `flex: 1 1 0`. User spec 2026-06-08:
+   "เสนอเพื่อพิจารณา ส่วนของ ผอ. จัดกึ่งกลางจะสวยครับ กรณีที่ไม่มีรองผอ." */
+.pp5-cover-sig-row--single {
+  justify-content: center;
+}
+.pp5-cover-sig-row--single .pp5-cover-sig-decision {
+  flex: 0 0 auto;
+  width: 60%;
+  text-align: center;
+  padding-left: 0;
 }
 
 /* Page break helper — forces the next sibling onto a new printed page */
@@ -1862,17 +1882,33 @@
   .pp5-page-content-score {
     page: pp5-bundle-score;
   }
+  /* Left margin bumped to 25mm (user spec 2026-06-08: "ขยับขอบซ้ายให้ห่าง
+     สัก 2.5 ซม. ไว้เผื่อเย็บเข้าเล่ม") — reserves room for hole-punch/
+     binding along the left edge of every page in the ปพ.5 รายวิชา เล่ม.
+     4-value margin shorthand = top right bottom left. */
   @page pp5-bundle-cover {
     size: A4 portrait;
-    margin: 15mm 12mm 5mm;
+    margin: 15mm 12mm 5mm 25mm;
   }
   @page pp5-bundle-weekly {
     size: A4 portrait;
-    margin: 15mm 10mm 5mm;
+    margin: 15mm 10mm 5mm 25mm;
   }
   @page pp5-bundle-score {
     size: A4 portrait;
-    margin: 15mm 12mm 5mm;
+    margin: 15mm 12mm 5mm 25mm;
+  }
+  /* Eval section (characteristics/reading/competency) pages — only when
+     rendered inside the ปพ.5 รายวิชา bundle (EvalReportPage's `compact`
+     prop adds this class). The standalone /reports/student-eval page
+     keeps the global default @page (7mm/12mm/5mm, no left bump) since
+     it's printed standalone, not bound into the เล่ม. */
+  .pp5-page-content-eval-bundle {
+    page: pp5-bundle-eval;
+  }
+  @page pp5-bundle-eval {
+    size: A4 portrait;
+    margin: 7mm 12mm 5mm 25mm;
   }
   /* ปพ.5 รวมชั้น cover — 15mm top margin (vs default 7mm) so the logo
      + header don't crowd the top edge. User spec 2026-05-20: "ส่วนหัว
@@ -2115,6 +2151,15 @@
   .pp5-page-content-wide .att-table {
     margin-left: 2mm;
     margin-right: 0;
+  }
+  /* ปพ.5 รายวิชา bundle weekly grid — name column is narrower (115px)
+     than the generic .att-name print sizes (13px compact / 14px roomy)
+     assume, so long ด.ช./ด.ญ. names overflow. Shrink further to fit.
+     User spec 2026-06-08: "ปรับขนาดอักษร ชื่อนามสกุล ให้พอดีกับช่องตาราง
+     ลดขนาดข้อความลงอีกนิด". Matches the screen-preview size in
+     score-report.tsx's iframe preview CSS (was print-only gap before). */
+  .pp5-page-content-wide .att-table tbody .att-name {
+    font-size: 11px;
   }
   .att-page {
     padding: 0;

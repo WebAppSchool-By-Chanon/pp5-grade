@@ -5,6 +5,7 @@ import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button, Field, Input, Select } from "@pp5/ui";
 import { enrollExistingStudent, type StudentFormState } from "./actions";
+import { ThaiDateInput } from "./thai-date-input";
 
 const initialState: StudentFormState = { error: null };
 
@@ -274,10 +275,9 @@ export function StudentForm({
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="วันเกิด">
-            <Input
+            <ThaiDateInput
               name="birth_date"
-              type="date"
-              defaultValue={defaultValues?.birth_date ?? ""}
+              defaultValue={defaultValues?.birth_date}
             />
           </Field>
           <Field

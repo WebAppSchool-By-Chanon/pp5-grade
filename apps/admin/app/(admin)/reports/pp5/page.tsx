@@ -1550,11 +1550,13 @@ function Pp5Cover({
         </div>
       )}
 
-      {/* No deputy director — single ผอ. signature with decision */}
+      {/* No deputy director — single ผอ. signature with decision,
+          centered instead of stretching full-width (user spec
+          2026-06-08: "จัดกึ่งกลางจะสวยครับ") */}
       {!info.deputyDirectorName && (
         <div className="pp5-cover-approval">
           <h4 className="pp5-cover-approval-title">เสนอเพื่อพิจารณา</h4>
-          <div className="pp5-cover-sig-row">
+          <div className="pp5-cover-sig-row pp5-cover-sig-row--single">
             <div className="pp5-cover-sig pp5-cover-sig-decision">
               <p>
                 <span className="pp5-cover-check">{unchecked} อนุมัติ</span>
@@ -2350,7 +2352,9 @@ function EvalReportPage({
   // harder to follow when debugging the print layout.
   const dataPct = columns.length > 0 ? 55 / columns.length : 0;
   return (
-    <section className="pp5-page-content">
+    <section
+      className={`pp5-page-content${compact ? " pp5-page-content-eval-bundle" : ""}`}
+    >
       {/* Header — mirrors the standalone print page exactly: centered
           logo + title + school name, then a meta line with class + scope
           (ทั้งปี for primary, ภาคเรียนที่ N for secondary) + year. */}
