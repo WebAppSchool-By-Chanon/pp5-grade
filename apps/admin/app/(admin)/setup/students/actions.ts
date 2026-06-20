@@ -372,22 +372,41 @@ export async function enrollExistingStudent(
   // Resolve effective semester (primary = 0, secondary = 1|2)
   const { data: classroomInfo } = await admin
     .from("classrooms")
-    .select(`grade_level:grade_levels!grade_level_id (system)`)
+    .select(
+      `academic_year_id, grade_level:grade_levels!grade_level_id (system)`,
+    )
     .eq("id", classroomId)
     .maybeSingle();
   const effectiveSemester: 0 | 1 | 2 =
     classroomInfo?.grade_level?.system === "secondary" ? semester : 0;
 
-  // Guard: already enrolled in this classroom × semester?
-  const { data: alreadyEnrolled } = await admin
-    .from("enrollments")
-    .select("id")
-    .eq("student_id", studentId)
-    .eq("classroom_id", classroomId)
-    .eq("semester", effectiveSemester)
-    .maybeSingle();
-  if (alreadyEnrolled) {
-    return { error: "นักเรียนอยู่ในห้องนี้แล้ว" };
+  // Guard: a student belongs to exactly ONE classroom per (year × semester).
+  // If already placed — even in a DIFFERENT room — block and point the admin
+  // to the right tool. (Moving rooms is done via the edit page, not here.)
+  if (classroomInfo?.academic_year_id) {
+    const { data: existing } = await admin
+      .from("enrollments")
+      .select(
+        `id, classroom_id, classroom:classrooms!classroom_id (academic_year_id, room_number, grade_level:grade_levels!grade_level_id (name_short))`,
+      )
+      .eq("student_id", studentId)
+      .eq("semester", effectiveSemester);
+
+    const conflict = (existing ?? []).find(
+      (e) => e.classroom?.academic_year_id === classroomInfo.academic_year_id,
+    );
+    if (conflict) {
+      if (conflict.classroom_id === classroomId) {
+        return { error: "นักเรียนอยู่ในห้องนี้แล้ว" };
+      }
+      const gradeShort = conflict.classroom?.grade_level?.name_short;
+      const label = gradeShort
+        ? `${gradeShort}/${conflict.classroom?.room_number}`
+        : "ห้องอื่น";
+      return {
+        error: `นักเรียนนี้อยู่ห้อง ${label} ในภาคเรียนนี้แล้ว — หากต้องการย้ายห้อง ให้ใช้หน้าแก้ไขนักเรียน`,
+      };
+    }
   }
 
   // Assign next student_number

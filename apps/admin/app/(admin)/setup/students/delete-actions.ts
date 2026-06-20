@@ -284,7 +284,12 @@ export async function deleteStudentCompletely(
     const { error: authErr } = await admin.auth.admin.deleteUser(
       student.auth_user_id,
     );
-    if (authErr) {
+    // If the auth user is already gone (e.g. it was removed earlier via the
+    // Supabase dashboard), treat it as success — the goal is for it NOT to
+    // exist. Only a genuine failure should block deleting the students row.
+    const alreadyGone =
+      authErr?.status === 404 || /not.?found/i.test(authErr?.message ?? "");
+    if (authErr && !alreadyGone) {
       return {
         ok: false,
         error: `ลบบัญชีผู้ใช้ไม่สำเร็จ: ${authErr.message}`,
