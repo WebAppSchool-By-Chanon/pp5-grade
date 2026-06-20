@@ -5,6 +5,7 @@ import { getCurrentUser } from "@pp5/database/queries";
 import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 import { requireWriteAccess } from "@/lib/access";
+import { renumberClassroom } from "../_renumber";
 
 const STUDENT_DOMAIN = "student.pp5.local";
 
@@ -150,40 +151,6 @@ function cellString(cell: ExcelJS.Cell): string {
  * (classroom_id, semester, student_number) — renumbering across semesters
  * would collide.
  */
-async function renumberClassroom(
-  admin: ReturnType<typeof createAdminClient>,
-  classroomId: string,
-  semester: 0 | 1 | 2,
-) {
-  const { data: enrollments } = await admin
-    .from("enrollments")
-    .select("id, student:students!student_id (student_code)")
-    .eq("classroom_id", classroomId)
-    .eq("semester", semester);
-  if (!enrollments) return;
-
-  const sorted = enrollments
-    .filter((e) => e.student?.student_code)
-    .sort((a, b) =>
-      a.student!.student_code.localeCompare(b.student!.student_code, "th"),
-    );
-
-  // Phase 1: negative temps (unique within the scope)
-  for (let i = 0; i < sorted.length; i++) {
-    await admin
-      .from("enrollments")
-      .update({ student_number: -(i + 1) })
-      .eq("id", sorted[i].id);
-  }
-  // Phase 2: final positives
-  for (let i = 0; i < sorted.length; i++) {
-    await admin
-      .from("enrollments")
-      .update({ student_number: i + 1 })
-      .eq("id", sorted[i].id);
-  }
-}
-
 async function ensureAdmin(): Promise<string | null> {
   const auth = await getCurrentUser();
   if (!auth || auth.profile.role !== "admin") {

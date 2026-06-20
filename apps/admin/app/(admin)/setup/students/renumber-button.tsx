@@ -3,7 +3,8 @@
 import { Loader2, ListOrdered } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { type NumberMode, renumberClassroomById } from "./actions";
+import { renumberClassroomById } from "./actions";
+import type { NumberMode } from "./_renumber";
 
 const MODE_OPTIONS: { value: NumberMode; label: string }[] = [
   { value: "code", label: "ตามรหัส" },

@@ -9,7 +9,7 @@ import { RoomFilter } from "../_components/room-filter";
 import { DeleteStudentsDialog } from "./delete-dialog";
 import { DeleteSingleStudentButton } from "./delete-single-button";
 import { NavigationGate } from "./navigation-gate";
-import { type NumberMode } from "./actions";
+import type { NumberMode } from "./_renumber";
 import { RenumberClassroomButton } from "./renumber-button";
 
 export const metadata = {

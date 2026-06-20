@@ -5,6 +5,7 @@ import { getCurrentUser } from "@pp5/database/queries";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireWriteAccess } from "@/lib/access";
+import { renumberClassroom, type NumberMode } from "./_renumber";
 
 const STUDENT_DOMAIN = "student.pp5.local";
 
@@ -113,28 +114,6 @@ async function ensureAdmin(): Promise<StudentFormState | null> {
 }
 
 /**
- * How to order student numbers within a classroom.
- *   'code'         — by student_code only (original behaviour)
- *   'male_first'   — boys (เด็กชาย/นาย/ด.ช.) before girls, then by code
- *   'female_first' — girls before boys, then by code
- */
-export type NumberMode = "code" | "male_first" | "female_first";
-
-const MALE_TITLES = ["เด็กชาย", "ด.ช.", "นาย"];
-const FEMALE_TITLES = ["เด็กหญิง", "ด.ญ.", "นางสาว", "นาง"];
-
-function genderOrder(
-  title: string | null,
-  mode: "male_first" | "female_first",
-): number {
-  const t = title ?? "";
-  const isMale = MALE_TITLES.some((p) => t.startsWith(p));
-  const isFemale = FEMALE_TITLES.some((p) => t.startsWith(p));
-  if (mode === "male_first") return isMale ? 0 : isFemale ? 1 : 2;
-  return isFemale ? 0 : isMale ? 1 : 2;
-}
-
-/**
  * Manually re-number student_number for a single classroom × semester.
  * Used by the "เรียงเลขที่ใหม่" button on the students list page.
  *
@@ -195,7 +174,7 @@ export async function renumberClassroomById(
         "secondary"
           ? schoolSemester
           : 0;
-      await renumberClassroom(admin, room.id, sem, mode);
+      await renumberClassroom(admin, room.id, sem);
     }
   } else {
     // Save mode to this classroom only
@@ -203,7 +182,7 @@ export async function renumberClassroomById(
       .from("classrooms")
       .update({ number_mode: mode })
       .eq("id", classroomId);
-    await renumberClassroom(admin, classroomId, semester, mode);
+    await renumberClassroom(admin, classroomId, semester);
   }
 
   // Count for UI feedback (always the originally-requested classroom)
@@ -218,62 +197,6 @@ export async function renumberClassroomById(
 
   revalidatePath("/setup/students");
   return { ok: true, count: count ?? 0 };
-}
-
-/**
- * Re-number student_number sequentially (1, 2, 3, ...) in a classroom.
- *
- * Sort order depends on `mode`:
- *   'code'         — by student_code only
- *   'male_first'   — boys first, then girls, then by student_code within group
- *   'female_first' — girls first, then boys, then by student_code within group
- *
- * 2-phase update avoids UNIQUE(classroom_id, student_number) conflicts:
- *   Phase 1: negative temps  (-1, -2, …)
- *   Phase 2: final positives ( 1,  2, …)
- */
-async function renumberClassroom(
-  admin: ReturnType<typeof createAdminClient>,
-  classroomId: string,
-  semester: 0 | 1 | 2 = 0,
-  mode: NumberMode = "code",
-) {
-  const { data: enrollments, error } = await admin
-    .from("enrollments")
-    .select("id, student:students!student_id (student_code, title)")
-    .eq("classroom_id", classroomId)
-    .eq("semester", semester);
-  if (error || !enrollments) return;
-
-  const sorted = enrollments
-    .filter((e) => e.student?.student_code)
-    .sort((a, b) => {
-      if (mode !== "code") {
-        const ga = genderOrder(a.student!.title ?? null, mode);
-        const gb = genderOrder(b.student!.title ?? null, mode);
-        if (ga !== gb) return ga - gb;
-      }
-      return a.student!.student_code.localeCompare(
-        b.student!.student_code,
-        "th",
-      );
-    });
-
-  // Phase 1: temp negative values
-  for (let i = 0; i < sorted.length; i++) {
-    await admin
-      .from("enrollments")
-      .update({ student_number: -(i + 1) })
-      .eq("id", sorted[i].id);
-  }
-
-  // Phase 2: final values
-  for (let i = 0; i < sorted.length; i++) {
-    await admin
-      .from("enrollments")
-      .update({ student_number: i + 1 })
-      .eq("id", sorted[i].id);
-  }
 }
 
 /**

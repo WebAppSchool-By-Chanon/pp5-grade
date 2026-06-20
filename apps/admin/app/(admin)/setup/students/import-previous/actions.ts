@@ -4,6 +4,7 @@ import { createAdminClient } from "@pp5/database/admin";
 import { getCurrentUser } from "@pp5/database/queries";
 import { revalidatePath } from "next/cache";
 import { requireWriteAccess } from "@/lib/access";
+import { renumberClassroom } from "../_renumber";
 
 // ============================================================
 // Types
@@ -382,36 +383,3 @@ export async function finalizePromote(
  * Re-number student_number sequentially in a classroom × semester,
  * sorted by student_code. Mirror of the helper in other action files.
  */
-async function renumberClassroom(
-  admin: ReturnType<typeof createAdminClient>,
-  classroomId: string,
-  semester: 0 | 1 | 2 = 0,
-) {
-  const { data: enrollments } = await admin
-    .from("enrollments")
-    .select("id, student:students!student_id (student_code)")
-    .eq("classroom_id", classroomId)
-    .eq("semester", semester);
-  if (!enrollments) return;
-
-  const sorted = enrollments
-    .filter((e) => e.student?.student_code)
-    .sort((a, b) =>
-      a.student!.student_code.localeCompare(b.student!.student_code, "th"),
-    );
-
-  // Phase 1: negative temps
-  for (let i = 0; i < sorted.length; i++) {
-    await admin
-      .from("enrollments")
-      .update({ student_number: -(i + 1) })
-      .eq("id", sorted[i].id);
-  }
-  // Phase 2: final positives
-  for (let i = 0; i < sorted.length; i++) {
-    await admin
-      .from("enrollments")
-      .update({ student_number: i + 1 })
-      .eq("id", sorted[i].id);
-  }
-}
