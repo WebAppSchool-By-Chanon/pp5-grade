@@ -209,6 +209,7 @@ CREATE TABLE classrooms (
     grade_level_id      UUID NOT NULL REFERENCES grade_levels(id) ON DELETE RESTRICT,
     room_number         INTEGER NOT NULL,               -- 1, 2, 3
     study_plan_id       UUID,                           -- FK ใส่ทีหลังเมื่อสร้างตาราง study_plans
+    number_mode         TEXT DEFAULT 'code',            -- เรียงเลขที่: code | male_first | female_first
     status              classroom_status DEFAULT 'open',
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW(),
@@ -221,6 +222,7 @@ CREATE INDEX idx_classrooms_grade ON classrooms(grade_level_id);
 
 COMMENT ON TABLE classrooms IS 'ห้องเรียน · ใช้ smart naming: 1 ห้อง = "ป.3" / หลายห้อง = "ป.3/1"';
 COMMENT ON COLUMN classrooms.room_number IS 'หมายเลขห้อง 1, 2, 3 - แสดง /1 /2 เมื่อมีหลายห้อง';
+COMMENT ON COLUMN classrooms.number_mode IS 'การเรียงเลขที่นักเรียน: code=ตามรหัส, male_first=ชาย-หญิง, female_first=หญิง-ชาย';
 
 
 -- =====================================================================

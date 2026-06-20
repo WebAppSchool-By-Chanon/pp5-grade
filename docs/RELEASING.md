@@ -28,3 +28,16 @@
   อย่าลืม push ขึ้น `main` ไม่งั้นโรงเรียนจะไม่เห็น
 - ถ้าอัปเดตมี migration SQL → ต้องแจ้งโรงเรียนแยกต่างหากให้รัน SQL ด้วย
   (แถบบอกแค่ว่า "มีเวอร์ชันใหม่" ไม่ได้รัน SQL ให้)
+
+## รายการ migration ที่ต้องรัน (โรงเรียนที่ deploy ก่อนหน้า)
+
+ฟีเจอร์ที่เพิ่มคอลัมน์ DB ใหม่ — โรงเรียนที่ deploy **ก่อน** ฟีเจอร์นั้นต้องรัน
+SQL เพิ่มเองหลัง Sync fork (Supabase Dashboard → SQL Editor) · โรงเรียนใหม่ที่
+รัน `setup.sql` ล่าสุดมีครบอยู่แล้ว ไม่ต้องรันซ้ำ
+
+| ฟีเจอร์ | ไฟล์ migration | SQL |
+|--------|---------------|-----|
+| ไลเซนส์ | (รวมใน `setup.sql`) | `ALTER TABLE schools ADD COLUMN IF NOT EXISTS license_key TEXT;` |
+| เรียงเลขที่ตามเพศ | `migrations/20260620_classrooms_number_mode.sql` | `ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS number_mode TEXT DEFAULT 'code';` |
+
+> ทุก migration ใช้ `IF NOT EXISTS` → รันซ้ำได้ปลอดภัย ถ้าไม่แน่ใจว่ารันไปหรือยัง รันได้เลย
