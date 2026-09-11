@@ -1771,7 +1771,7 @@ function Pp5ClassCover({
 
       {/* Approval signature block — layout per user's image 2026-05-20:
             Section 1 = "การอนุมัติผลการเรียน" — N sigs in a row:
-              ครูประจำชั้น1 [+ ครูประจำชั้น2 ถ้ามี] + หัวหน้างานวัดและประเมินผล
+              ครูประจำชั้น1 [+ ครูประจำชั้น2 ถ้ามี] + หัวหน้าวิชาการ
               (grid-template-columns adapts to the cell count so the layout
                stays balanced whether there's 1 or 2 homerooms)
             Section 2 = "เสนอเพื่อพิจารณา" — 2 columns:
@@ -1786,22 +1786,11 @@ function Pp5ClassCover({
         for (const name of homeroomsForRow) {
           approveCells.push({ name, role: "ครูประจำชั้น" });
         }
-        // Officer signature — prefer หัวหน้างานวัดและประเมินผล when
-        // the school filled it in; otherwise fall back to หัวหน้าวิชาการ
-        // (academic_head_name) so the slot never goes blank. User spec
-        // 2026-05-22.
-        const officerName = school?.assessment_officer_name?.trim();
-        if (officerName) {
-          approveCells.push({
-            name: officerName,
-            role: "หัวหน้างานวัดและประเมินผล",
-          });
-        } else {
-          approveCells.push({
-            name: school?.academic_head_name?.trim() || "—",
-            role: "หัวหน้าวิชาการ",
-          });
-        }
+        // ปพ.5 แบบรวมชั้นให้หัวหน้าวิชาการเป็นผู้ลงนามในส่วนอนุมัติผลการเรียน
+        approveCells.push({
+          name: school?.academic_head_name?.trim() || "—",
+          role: "หัวหน้าวิชาการ",
+        });
         return (
           <div className="pp5-class-approval">
             <p className="pp5-class-approval-section">การอนุมัติผลการเรียน</p>

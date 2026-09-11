@@ -1513,7 +1513,7 @@ function Pp5Cover({
             <p className="pp5-cover-sig-name">
               ( {info.academicHeadName ?? "............................"} )
             </p>
-            <p>หัวหน้ากลุ่มสาระการเรียนรู้</p>
+            <p>หัวหน้าวิชาการ</p>
           </div>
           <div className="pp5-cover-sig">
             <p>ลงชื่อ ............................................</p>
