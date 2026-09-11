@@ -246,7 +246,13 @@ export default async function Pp5Page({ searchParams }: Props) {
   // 5. Homeroom teachers (both slots — equal status per user spec).
   //    Used on the cover's meta row "ครูประจำชั้น: A · B" — both names
   //    shown together when both slots are filled. Joined with " · ".
-  const { data: homerooms } = await supabase
+  // This query intentionally uses the server-side admin client after the
+  // report access guard above has passed. A teacher may read the assignment
+  // rows through RLS, but `users_self_read` hides the joined user record for
+  // other teachers, which made the homeroom names disappear on their report.
+  // Scope the elevated read to this one authorised classroom only.
+  const reportAdmin = createAdminClient();
+  const { data: homerooms } = await reportAdmin
     .from("homeroom_assignments")
     .select(
       `role, teacher:teachers!teacher_id ( user:users!user_id (full_name, title) )`,
