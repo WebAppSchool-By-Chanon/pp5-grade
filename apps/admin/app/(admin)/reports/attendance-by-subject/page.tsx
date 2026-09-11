@@ -9,6 +9,7 @@ import {
   reportRoomSuffix,
 } from "@/lib/current-term";
 import { PrintButton } from "../pp5/print-button";
+import { attendanceStudentNameClass } from "../_shared/student-name-fit";
 
 export async function generateMetadata({
   searchParams,
@@ -581,7 +582,13 @@ export default async function AttendanceBySubjectReport({ searchParams }: Props)
                       <tr key={`r-${rowNum}`}>
                         <td>{rowNum}</td>
                         {showNameCol && (
-                          <td className="att-name">{s?.full_label ?? ""}</td>
+                          <td
+                            className={attendanceStudentNameClass(
+                              s?.full_label,
+                            )}
+                          >
+                            {s?.full_label ?? ""}
+                          </td>
                         )}
                         {rangeWeeks.map((w) =>
                           Array.from(

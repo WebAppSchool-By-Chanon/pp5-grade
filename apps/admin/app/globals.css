@@ -1595,6 +1595,18 @@
   font-size: 12px;
 }
 
+/* Fixed-width attendance name columns: shrink only long names. The extra
+   class raises specificity above both the screen and print-size defaults,
+   so the embedded preview and the saved PDF stay identical. */
+.pp5-page-content-wide .att-table tbody .att-name.att-name--long,
+.att-page-section .att-table tbody .att-name.att-name--long {
+  font-size: 9px;
+}
+.pp5-page-content-wide .att-table tbody .att-name.att-name--xlong,
+.att-page-section .att-table tbody .att-name.att-name--xlong {
+  font-size: 7.5px;
+}
+
 /* Score-page header (Pp5ScoreHeader in bundle) — uniform 15px font for
    title + meta line, matching the att-page-header on weekly grid pages
    (user spec 2026-05-19 "ในหน้าผลการเรียนก็ให้แก้เช่นกัน"). Applied
@@ -1863,6 +1875,11 @@
      10mm so the 10-week grid still fits. */
   .pp5-page-content-wide {
     page: pp5-bundle-weekly;
+    /* Chromium can paint Thai combining vowels/tone marks from the next
+       logical page into the bottom of the preceding PDF page. Clip only at
+       the vertical page edges; negative horizontal insets deliberately keep
+       the wide attendance table and its right border visible. */
+    clip-path: inset(0 -50mm 0 -50mm);
   }
   /* Cover page in the ปพ.5 bundle uses its own @page with 15mm top
      margin. Score pages (NumericTable + PrimaryAnnualSummary in bundle

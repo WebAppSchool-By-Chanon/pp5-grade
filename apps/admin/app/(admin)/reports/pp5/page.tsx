@@ -20,6 +20,7 @@ import {
 } from "@/lib/current-term";
 import { withSchoolPrefix } from "@/lib/school-name";
 import { getTeacherScope } from "@/lib/teacher-scope";
+import { attendanceStudentNameClass } from "../_shared/student-name-fit";
 
 export async function generateMetadata({
   searchParams,
@@ -1879,7 +1880,11 @@ function AttendanceWeeklyGridSection({
                     <tr key={`r-${rowNum}`}>
                       <td>{rowNum}</td>
                       {showNameCol && (
-                        <td className="att-name">{s?.full_label ?? ""}</td>
+                        <td
+                          className={attendanceStudentNameClass(s?.full_label)}
+                        >
+                          {s?.full_label ?? ""}
+                        </td>
                       )}
                       {rangeWeeks.map((w) =>
                         Array.from({ length: slotsPerWeek }, (_, si) => {
