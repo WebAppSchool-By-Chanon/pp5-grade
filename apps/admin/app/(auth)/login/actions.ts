@@ -14,31 +14,43 @@ export async function loginAction(
   _prevState: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
-  const username = String(formData.get("username") ?? "").trim();
+  const loginId = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
-  if (!username || !password) {
-    return { error: "กรุณากรอกชื่อผู้ใช้และรหัสผ่าน" };
+  if (!loginId || !password) {
+    return { error: "กรุณากรอกชื่อผู้ใช้หรืออีเมล และรหัสผ่าน" };
   }
 
   const supabase = await createClient();
 
-  // Try admin domain first
-  let { error } = await supabase.auth.signInWithPassword({
-    email: `${username}@${ADMIN_DOMAIN}`,
-    password,
-  });
+  let error;
 
-  // Fallback to teacher domain
-  if (error) {
+  if (loginId.includes("@")) {
+    // New installations may create the first administrator with a real
+    // school email/Gmail account. Existing synthetic-email accounts remain
+    // supported by the username branch below.
     ({ error } = await supabase.auth.signInWithPassword({
-      email: `${username}@${TEACHER_DOMAIN}`,
+      email: loginId,
       password,
     }));
+  } else {
+    // Existing administrators and teachers sign in with their username.
+    ({ error } = await supabase.auth.signInWithPassword({
+      email: `${loginId}@${ADMIN_DOMAIN}`,
+      password,
+    }));
+
+    // Fallback to teacher domain.
+    if (error) {
+      ({ error } = await supabase.auth.signInWithPassword({
+        email: `${loginId}@${TEACHER_DOMAIN}`,
+        password,
+      }));
+    }
   }
 
   if (error) {
-    return { error: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" };
+    return { error: "ชื่อผู้ใช้ อีเมล หรือรหัสผ่านไม่ถูกต้อง" };
   }
 
   // signIn succeeded — but check if the account is still active.

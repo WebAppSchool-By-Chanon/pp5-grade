@@ -88,14 +88,14 @@ export function LoginForm({ school }: { school: LoginFormSchool | null }) {
         </div>
 
         <form action={formAction} className="space-y-4">
-          <Field label="ชื่อผู้ใช้">
+          <Field label="ชื่อผู้ใช้หรืออีเมล">
             <Input
               id="username"
               name="username"
               autoComplete="username"
               required
               autoFocus
-              placeholder="เช่น admin หรือ somchai01"
+              placeholder="เช่น admin หรือ school@gmail.com"
             />
           </Field>
 
