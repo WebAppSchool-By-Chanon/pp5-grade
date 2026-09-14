@@ -89,7 +89,7 @@ CREATE TABLE schools (
     deputy_director_name      VARCHAR(255),                       -- ชื่อ รอง ผอ. (ถ้ามี)
     academic_head_name        VARCHAR(255),                       -- ชื่อหัวหน้าฝ่ายวิชาการ (ใช้ใน ปพ.5 รวมห้อง)
     assessment_officer_name   VARCHAR(255),                       -- ชื่อหัวหน้างานวัดผล (ใช้ใน ปพ.5)
-    license_key     TEXT,                                       -- JWT license key (กรอกผ่านหน้า /license)
+    license_key     TEXT,                                       -- License key (XXXX-XXXX-XXXX-XXXX)
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
@@ -635,6 +635,42 @@ CREATE INDEX idx_subject_attendance_student ON subject_attendance(student_id);
 COMMENT ON TABLE subject_attendance IS 'เวลาเรียนต่อวิชาแบบ ปพ.5 มัธยม · 1 row ต่อ (offering, student, week, slot)';
 
 
+-- วันเรียนประจำของแต่ละช่องรายวิชา
+-- weekday: 1=จันทร์ ... 7=อาทิตย์
+CREATE TABLE subject_schedule_slots (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    offering_id         UUID NOT NULL REFERENCES subject_offerings(id) ON DELETE CASCADE,
+    slot_in_week        SMALLINT NOT NULL CHECK (slot_in_week BETWEEN 1 AND 10),
+    weekday             SMALLINT NOT NULL CHECK (weekday BETWEEN 1 AND 7),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    UNIQUE(offering_id, slot_in_week)
+);
+
+CREATE INDEX idx_subject_schedule_slots_offering ON subject_schedule_slots(offering_id);
+
+COMMENT ON TABLE subject_schedule_slots IS 'วันเรียนประจำต่อช่องของรายวิชา · ใช้จับคู่เช็กชื่อรายวัน';
+
+
+-- วันที่เรียนที่ย้ายเฉพาะสัปดาห์ เช่น เรียนชดเชย
+CREATE TABLE subject_schedule_overrides (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    offering_id         UUID NOT NULL REFERENCES subject_offerings(id) ON DELETE CASCADE,
+    week                SMALLINT NOT NULL CHECK (week BETWEEN 1 AND 30),
+    slot_in_week        SMALLINT NOT NULL CHECK (slot_in_week BETWEEN 1 AND 10),
+    session_date        DATE NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    UNIQUE(offering_id, week, slot_in_week)
+);
+
+CREATE INDEX idx_subject_schedule_overrides_offering ON subject_schedule_overrides(offering_id);
+
+COMMENT ON TABLE subject_schedule_overrides IS 'วันเรียนชดเชย/ย้ายคาบเฉพาะสัปดาห์ · ไม่แก้ตารางประจำ';
+
+
 -- =====================================================================
 -- MODULE 6: CURRICULUM EVALUATION
 -- =====================================================================
@@ -901,6 +937,8 @@ CREATE TRIGGER set_updated_at_offerings BEFORE UPDATE ON subject_offerings FOR E
 CREATE TRIGGER set_updated_at_categories BEFORE UPDATE ON score_categories FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 CREATE TRIGGER set_updated_at_scores BEFORE UPDATE ON scores FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 CREATE TRIGGER set_updated_at_grades BEFORE UPDATE ON grades FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+CREATE TRIGGER set_updated_at_subject_schedule_slots BEFORE UPDATE ON subject_schedule_slots FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+CREATE TRIGGER set_updated_at_subject_schedule_overrides BEFORE UPDATE ON subject_schedule_overrides FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 
 
 -- =====================================================================

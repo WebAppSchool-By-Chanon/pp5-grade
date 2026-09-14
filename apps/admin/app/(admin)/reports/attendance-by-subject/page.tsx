@@ -8,6 +8,10 @@ import {
   reportClassroomLabel,
   reportRoomSuffix,
 } from "@/lib/current-term";
+import {
+  countLinkedAttendance,
+  loadLinkedSubjectAttendance,
+} from "@/lib/subject-attendance-link";
 import { PrintButton } from "../pp5/print-button";
 import { attendanceStudentNameClass } from "../_shared/student-name-fit";
 
@@ -207,67 +211,14 @@ export default async function AttendanceBySubjectReport({ searchParams }: Props)
       full_label: `${abbreviateTitle(e.student!.title)}${e.student!.first_name} ${e.student!.last_name}`,
     }));
 
-  // 6. subject_attendance for this offering
+  // 6. Effective subject attendance is resolved after the timetable anchor
+  // below: a saved subject value wins; otherwise daily attendance is used.
   type Counts = { present: number; absent: number; leave: number };
-  const cellsByStudent = new Map<
+  let cellsByStudent = new Map<
     string,
     Map<string, "present" | "absent" | "leave">
   >();
-  const countsByStudent = new Map<string, Counts>();
-  if (students.length > 0) {
-    // Paginate with .range() — Supabase max-rows defaults to 1000.
-    // For one offering: 30 students × 30 weeks × 10 slots = 9,000 max rows
-    // (typically ≤1,440 in practice, but pagination keeps us safe past 1k).
-    type SaRow = {
-      student_id: string;
-      week: number;
-      slot_in_week: number;
-      status: "present" | "absent" | "leave" | "sick";
-    };
-    const PAGE = 1000;
-    const saRows: SaRow[] = [];
-    const studentIds = students.map((s) => s.id);
-    let from = 0;
-    while (true) {
-      const { data, error } = await supabase
-        .from("subject_attendance")
-        .select("student_id, week, slot_in_week, status")
-        .eq("offering_id", offering.id)
-        .in("student_id", studentIds)
-        .order("week", { ascending: true })
-        .order("slot_in_week", { ascending: true })
-        .range(from, from + PAGE - 1);
-      if (error) break;
-      if (!data || data.length === 0) break;
-      saRows.push(...(data as SaRow[]));
-      if (data.length < PAGE) break;
-      from += PAGE;
-    }
-    for (const row of saRows) {
-      if (
-        row.status !== "present" &&
-        row.status !== "absent" &&
-        row.status !== "leave"
-      ) {
-        continue;
-      }
-      // Cell map (for table cells)
-      const key = `${row.week}|${row.slot_in_week}`;
-      let cellMap = cellsByStudent.get(row.student_id);
-      if (!cellMap) {
-        cellMap = new Map();
-        cellsByStudent.set(row.student_id, cellMap);
-      }
-      cellMap.set(key, row.status);
-      // Counts (for สรุป)
-      let counts = countsByStudent.get(row.student_id);
-      if (!counts) {
-        counts = { present: 0, absent: 0, leave: 0 };
-        countsByStudent.set(row.student_id, counts);
-      }
-      counts[row.status]++;
-    }
-  }
+  let countsByStudent = new Map<string, Counts>();
 
   // 7. Slots + anchor + week labels
   //
@@ -297,6 +248,32 @@ export default async function AttendanceBySubjectReport({ searchParams }: Props)
       end_date: classroom.academic_year.end_date,
     },
   );
+  if (students.length > 0) {
+    const linked = await loadLinkedSubjectAttendance({
+      offeringId: offering.id,
+      classroomId,
+      studentIds: students.map((student) => student.id),
+      slotsPerWeek,
+      anchorIso,
+    });
+    cellsByStudent = linked.cellsByStudent;
+    countsByStudent = new Map(
+      students.map((student) => {
+        const counts = countLinkedAttendance(
+          cellsByStudent.get(student.id),
+          totalSlots,
+        );
+        return [
+          student.id,
+          {
+            present: counts.present,
+            absent: counts.absent,
+            leave: counts.leave,
+          },
+        ];
+      }),
+    );
+  }
   const firstMonday = (() => {
     const [y, m, d] = anchorIso
       .split("-")

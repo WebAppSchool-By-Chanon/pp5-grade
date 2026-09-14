@@ -19,6 +19,10 @@ import {
   reportRoomSuffix,
 } from "@/lib/current-term";
 import { withSchoolPrefix } from "@/lib/school-name";
+import {
+  countLinkedAttendance,
+  loadLinkedSubjectAttendance,
+} from "@/lib/subject-attendance-link";
 import { getTeacherScope } from "@/lib/teacher-scope";
 import { attendanceStudentNameClass } from "../_shared/student-name-fit";
 
@@ -475,6 +479,7 @@ export default async function Pp5Page({ searchParams }: Props) {
   const yearStartDate = classroom.academic_year.start_date ?? null;
   const yearEndDate = classroom.academic_year.end_date ?? null;
   const academicYearBe = classroom.academic_year.year_be;
+  const attendanceClassroomId = classroom.id;
 
   type AttendanceSummary = {
     present: number;
@@ -510,74 +515,6 @@ export default async function Pp5Page({ searchParams }: Props) {
     offeringId: string,
     sem: 1 | 2,
   ): Promise<OfferingAttendance> {
-    const summaryByStudent = new Map<string, AttendanceSummary>();
-    // Per-student × (week, slot) status — used by the weekly-grid section
-    // to render each cell. Key format: `${week}|${slot}`
-    const cellsByStudent = new Map<
-      string,
-      Map<string, "present" | "absent" | "leave">
-    >();
-    if (totalSlots > 0 && studentIds.length > 0) {
-      // Paginate by .range() — Supabase max-rows defaults to 1000, and a
-      // fully-recorded ปพ.5 offering can exceed that (18 students × 80 slots
-      // = 1440). Without explicit ranging, the newest cells silently drop
-      // out of the SELECT result.
-      type SaRow = {
-        student_id: string;
-        week: number;
-        slot_in_week: number;
-        status: "present" | "absent" | "leave" | "sick";
-      };
-      const PAGE = 1000;
-      const saRows: SaRow[] = [];
-      let from = 0;
-      while (true) {
-        const { data, error } = await supabase
-          .from("subject_attendance")
-          .select("student_id, week, slot_in_week, status")
-          .eq("offering_id", offeringId)
-          .in("student_id", studentIds)
-          .order("week", { ascending: true })
-          .order("slot_in_week", { ascending: true })
-          .range(from, from + PAGE - 1);
-        if (error) break;
-        if (!data || data.length === 0) break;
-        saRows.push(...(data as SaRow[]));
-        if (data.length < PAGE) break;
-        from += PAGE;
-      }
-      for (const row of saRows) {
-        // Summary counts
-        let agg = summaryByStudent.get(row.student_id);
-        if (!agg) {
-          agg = { present: 0, absent: 0, leave: 0, pct: 0 };
-          summaryByStudent.set(row.student_id, agg);
-        }
-        if (row.status === "present") agg.present++;
-        else if (row.status === "absent") agg.absent++;
-        else if (row.status === "leave") agg.leave++;
-
-        // Per-cell map (only the 3 UI statuses; skip "sick" if any slipped in)
-        if (
-          row.status === "present" ||
-          row.status === "absent" ||
-          row.status === "leave"
-        ) {
-          const key = `${row.week}|${row.slot_in_week}`;
-          let cellMap = cellsByStudent.get(row.student_id);
-          if (!cellMap) {
-            cellMap = new Map();
-            cellsByStudent.set(row.student_id, cellMap);
-          }
-          cellMap.set(key, row.status);
-        }
-      }
-      // Compute % per student (after counting)
-      for (const agg of summaryByStudent.values()) {
-        agg.pct = Math.round((agg.present / totalSlots) * 100);
-      }
-    }
-
     // Compute anchor for the weekly-grid month labels (uses the school's
     // configured start_date / end_date or fallback Thai standard).
     const anchorIso = (() => {
@@ -586,6 +523,20 @@ export default async function Pp5Page({ searchParams }: Props) {
       const yearCe = academicYearBe - 543;
       return sem === 1 ? `${yearCe}-05-16` : `${yearCe}-11-01`;
     })();
+    const linked = await loadLinkedSubjectAttendance({
+      offeringId,
+      classroomId: attendanceClassroomId,
+      studentIds,
+      slotsPerWeek,
+      anchorIso,
+    });
+    const cellsByStudent = linked.cellsByStudent;
+    const summaryByStudent = new Map<string, AttendanceSummary>(
+      studentIds.map((studentId) => [
+        studentId,
+        countLinkedAttendance(cellsByStudent.get(studentId), totalSlots),
+      ]),
+    );
 
     return {
       weeklyGridPayload: {

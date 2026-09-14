@@ -3,7 +3,7 @@
 -- ============================================================
 -- Run ONCE in a fresh Supabase project: Dashboard → SQL Editor → paste → Run.
 -- Contains: full schema (tables + indexes + seeds) + RLS policies,
--- reflecting ALL migrations through 2026-05-18 — you do NOT need to run
+-- reflecting ALL migrations through 2026-09-14 — you do NOT need to run
 -- anything in migrations/ for a new deployment.
 --
 -- After running, see docs to (1) create the first admin user and
@@ -17,7 +17,7 @@
 -- รองรับ: ระบบประถม (ป.1-ป.6) + ระบบมัธยม (ม.1-ม.6) แยกกัน
 -- Architecture: 2 เว็บ (parent.school.com + admin.school.com) + DB เดียว
 -- Auth: Username/Password (Supabase Auth)
--- RLS: ยังไม่ใส่ในไฟล์นี้ (จะเพิ่มก่อน production)
+-- RLS: รวม policy ที่พร้อมใช้งานไว้ต่อท้าย schema ในไฟล์นี้แล้ว
 --
 -- โครงสร้าง 7 โมดูล:
 --   1. Core / Auth                  (โรงเรียน, users, parents)
@@ -647,6 +647,42 @@ CREATE INDEX idx_subject_attendance_student ON subject_attendance(student_id);
 COMMENT ON TABLE subject_attendance IS 'เวลาเรียนต่อวิชาแบบ ปพ.5 มัธยม · 1 row ต่อ (offering, student, week, slot)';
 
 
+-- วันเรียนประจำของแต่ละช่องรายวิชา
+-- weekday: 1=จันทร์ ... 7=อาทิตย์
+CREATE TABLE subject_schedule_slots (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    offering_id         UUID NOT NULL REFERENCES subject_offerings(id) ON DELETE CASCADE,
+    slot_in_week        SMALLINT NOT NULL CHECK (slot_in_week BETWEEN 1 AND 10),
+    weekday             SMALLINT NOT NULL CHECK (weekday BETWEEN 1 AND 7),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    UNIQUE(offering_id, slot_in_week)
+);
+
+CREATE INDEX idx_subject_schedule_slots_offering ON subject_schedule_slots(offering_id);
+
+COMMENT ON TABLE subject_schedule_slots IS 'วันเรียนประจำต่อช่องของรายวิชา · ใช้จับคู่เช็กชื่อรายวัน';
+
+
+-- วันที่เรียนที่ย้ายเฉพาะสัปดาห์ เช่น เรียนชดเชย
+CREATE TABLE subject_schedule_overrides (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    offering_id         UUID NOT NULL REFERENCES subject_offerings(id) ON DELETE CASCADE,
+    week                SMALLINT NOT NULL CHECK (week BETWEEN 1 AND 30),
+    slot_in_week        SMALLINT NOT NULL CHECK (slot_in_week BETWEEN 1 AND 10),
+    session_date        DATE NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    UNIQUE(offering_id, week, slot_in_week)
+);
+
+CREATE INDEX idx_subject_schedule_overrides_offering ON subject_schedule_overrides(offering_id);
+
+COMMENT ON TABLE subject_schedule_overrides IS 'วันเรียนชดเชย/ย้ายคาบเฉพาะสัปดาห์ · ไม่แก้ตารางประจำ';
+
+
 -- =====================================================================
 -- MODULE 6: CURRICULUM EVALUATION
 -- =====================================================================
@@ -913,6 +949,8 @@ CREATE TRIGGER set_updated_at_offerings BEFORE UPDATE ON subject_offerings FOR E
 CREATE TRIGGER set_updated_at_categories BEFORE UPDATE ON score_categories FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 CREATE TRIGGER set_updated_at_scores BEFORE UPDATE ON scores FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 CREATE TRIGGER set_updated_at_grades BEFORE UPDATE ON grades FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+CREATE TRIGGER set_updated_at_subject_schedule_slots BEFORE UPDATE ON subject_schedule_slots FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
+CREATE TRIGGER set_updated_at_subject_schedule_overrides BEFORE UPDATE ON subject_schedule_overrides FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 
 
 -- =====================================================================
@@ -943,11 +981,9 @@ CREATE TRIGGER set_updated_at_grades BEFORE UPDATE ON grades FOR EACH ROW EXECUT
 --    - แก้ subject_offerings.teacher_id ตรงๆ
 --    - ระบบไม่เก็บประวัติว่าครูคนเก่าเคยสอน
 --
--- TODO ก่อน production:
---   1. เพิ่ม Row-Level Security (RLS) policies
---   2. สร้าง storage buckets สำหรับ ปพ.5 PDF + โลโก้
---   3. ตั้งค่า Supabase Auth (Username/Password)
---   4. Seed ข้อมูลโรงเรียน (schools) + admin คนแรก
+-- หลังรันไฟล์นี้:
+--   1. สร้าง storage bucket สำหรับโลโก้ตาม docs/DEPLOY.md
+--   2. ตั้งค่า Supabase Auth และสร้าง admin คนแรก
 -- =====================================================================
 
 
@@ -1069,6 +1105,8 @@ ALTER TABLE grades ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workdays ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subject_attendance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subject_schedule_slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subject_schedule_overrides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE characteristics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE characteristic_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reading_thinking_evaluations ENABLE ROW LEVEL SECURITY;
@@ -1354,6 +1392,30 @@ CREATE POLICY "subject_attendance_teacher_write" ON subject_attendance
     WITH CHECK (is_teacher() AND teacher_teaches_offering(offering_id));
 
 CREATE POLICY "subject_attendance_admin_all" ON subject_attendance
+    FOR ALL USING (is_admin()) WITH CHECK (is_admin());
+
+
+-- SUBJECT_SCHEDULE: staff อ่าน · ครูผู้สอนแก้ตารางของวิชาตัวเอง · admin เต็ม
+CREATE POLICY "subject_schedule_slots_staff_read" ON subject_schedule_slots
+    FOR SELECT USING (is_staff());
+
+CREATE POLICY "subject_schedule_slots_teacher_write" ON subject_schedule_slots
+    FOR ALL
+    USING (is_teacher() AND teacher_teaches_offering(offering_id))
+    WITH CHECK (is_teacher() AND teacher_teaches_offering(offering_id));
+
+CREATE POLICY "subject_schedule_slots_admin_all" ON subject_schedule_slots
+    FOR ALL USING (is_admin()) WITH CHECK (is_admin());
+
+CREATE POLICY "subject_schedule_overrides_staff_read" ON subject_schedule_overrides
+    FOR SELECT USING (is_staff());
+
+CREATE POLICY "subject_schedule_overrides_teacher_write" ON subject_schedule_overrides
+    FOR ALL
+    USING (is_teacher() AND teacher_teaches_offering(offering_id))
+    WITH CHECK (is_teacher() AND teacher_teaches_offering(offering_id));
+
+CREATE POLICY "subject_schedule_overrides_admin_all" ON subject_schedule_overrides
     FOR ALL USING (is_admin()) WITH CHECK (is_admin());
 
 

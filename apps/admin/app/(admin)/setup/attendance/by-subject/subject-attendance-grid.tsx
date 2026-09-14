@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { CalendarClock, Check, Loader2, RotateCcw, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
@@ -8,6 +8,7 @@ import {
   setSubjectAttendanceForSlot,
   type SubjectAttendanceStatus,
 } from "./actions";
+import { saveSubjectScheduleOverride } from "./schedule-actions";
 
 export type SubjectStudentRow = {
   id: string;
@@ -15,6 +16,10 @@ export type SubjectStudentRow = {
   full_label: string;
   /** Map "week|slot_in_week" → status. */
   statuses: Record<string, SubjectAttendanceStatus | undefined>;
+  /** Daily values retained separately so clearing a manual value falls back. */
+  dailyStatuses: Record<string, SubjectAttendanceStatus | undefined>;
+  /** True when the effective cell is physically saved for this subject. */
+  manualKeys: Record<string, boolean | undefined>;
 };
 
 type Props = {
@@ -33,6 +38,11 @@ type Props = {
    *  compute % attendance in the summary column. */
   totalSlots: number;
   students: SubjectStudentRow[];
+  /** Effective dates after make-up overrides, keyed by "week|slot". */
+  sessionDates: Record<string, string | undefined>;
+  /** Recurring dates before overrides, used by "restore". */
+  baseSessionDates: Record<string, string | undefined>;
+  overrideKeys: string[];
 };
 
 const STATUS_LABEL: Record<SubjectAttendanceStatus, string> = {
@@ -77,12 +87,22 @@ export function SubjectAttendanceGrid({
   weekLabels,
   totalSlots,
   students: initialStudents,
+  sessionDates,
+  baseSessionDates,
+  overrideKeys,
 }: Props) {
   // Local optimistic state — server action updates first, then state mirrors.
   // (Matches the per-day grid pattern.)
   const [students, setStudents] =
     useState<SubjectStudentRow[]>(initialStudents);
   const [, startTransition] = useTransition();
+  const [overridePending, startOverrideTransition] = useTransition();
+  const [editingSession, setEditingSession] = useState<{
+    week: number;
+    slot: number;
+    date: string;
+  } | null>(null);
+  const [overrideError, setOverrideError] = useState<string | null>(null);
   const router = useRouter();
 
   const [firstWeek, lastWeek] = weekRange;
@@ -101,6 +121,7 @@ export function SubjectAttendanceGrid({
     week: number,
     slot: number,
     prevStatus: SubjectAttendanceStatus | undefined,
+    wasManual: boolean,
   ) => {
     setStudents((prev) =>
       prev.map((s) => {
@@ -109,7 +130,10 @@ export function SubjectAttendanceGrid({
         const nextStatuses = { ...s.statuses };
         if (prevStatus) nextStatuses[k] = prevStatus;
         else delete nextStatuses[k];
-        return { ...s, statuses: nextStatuses };
+        const nextManualKeys = { ...s.manualKeys };
+        if (wasManual) nextManualKeys[k] = true;
+        else delete nextManualKeys[k];
+        return { ...s, statuses: nextStatuses, manualKeys: nextManualKeys };
       }),
     );
   };
@@ -126,15 +150,26 @@ export function SubjectAttendanceGrid({
     // the entire grid to initialStudents and wiping every other click).
     const prevStatus =
       students.find((s) => s.id === studentId)?.statuses[cellKey(week, slot)];
+    const wasManual =
+      students.find((s) => s.id === studentId)?.manualKeys[cellKey(week, slot)] ===
+      true;
 
     setStudents((prev) =>
       prev.map((s) => {
         if (s.id !== studentId) return s;
         const k = cellKey(week, slot);
         const nextStatuses = { ...s.statuses };
-        if (newStatus) nextStatuses[k] = newStatus;
-        else delete nextStatuses[k];
-        return { ...s, statuses: nextStatuses };
+        const nextManualKeys = { ...s.manualKeys };
+        if (newStatus) {
+          nextStatuses[k] = newStatus;
+          nextManualKeys[k] = true;
+        } else {
+          const dailyStatus = s.dailyStatuses[k];
+          if (dailyStatus) nextStatuses[k] = dailyStatus;
+          else delete nextStatuses[k];
+          delete nextManualKeys[k];
+        }
+        return { ...s, statuses: nextStatuses, manualKeys: nextManualKeys };
       }),
     );
 
@@ -155,7 +190,7 @@ export function SubjectAttendanceGrid({
         router.refresh();
       } catch (e) {
         // Targeted rollback — only the failing cell, not the whole grid.
-        rollbackCell(studentId, week, slot, prevStatus);
+        rollbackCell(studentId, week, slot, prevStatus, wasManual);
         const msg = e instanceof Error ? e.message : String(e);
         console.error("saveSubjectAttendance failed", { studentId, week, slot, status: newStatus, error: e });
         alert(`บันทึกไม่สำเร็จ: ${msg}`);
@@ -169,21 +204,37 @@ export function SubjectAttendanceGrid({
     const allPresent =
       students.length > 0 &&
       students.every(
-        (s) => s.statuses[cellKey(week, slot)] === "present",
+        (s) =>
+          s.statuses[cellKey(week, slot)] === "present" &&
+          s.manualKeys[cellKey(week, slot)] === true,
       );
     const setPresent = !allPresent;
     // Snapshot the whole-column prev state for targeted rollback on failure.
     const prevColumn = new Map(
-      students.map((s) => [s.id, s.statuses[cellKey(week, slot)]]),
+      students.map((s) => [
+        s.id,
+        {
+          status: s.statuses[cellKey(week, slot)],
+          manual: s.manualKeys[cellKey(week, slot)] === true,
+        },
+      ]),
     );
 
     setStudents((prev) =>
       prev.map((s) => {
         const k = cellKey(week, slot);
         const nextStatuses = { ...s.statuses };
-        if (setPresent) nextStatuses[k] = "present";
-        else delete nextStatuses[k];
-        return { ...s, statuses: nextStatuses };
+        const nextManualKeys = { ...s.manualKeys };
+        if (setPresent) {
+          nextStatuses[k] = "present";
+          nextManualKeys[k] = true;
+        } else {
+          const dailyStatus = s.dailyStatuses[k];
+          if (dailyStatus) nextStatuses[k] = dailyStatus;
+          else delete nextStatuses[k];
+          delete nextManualKeys[k];
+        }
+        return { ...s, statuses: nextStatuses, manualKeys: nextManualKeys };
       }),
     );
 
@@ -206,16 +257,43 @@ export function SubjectAttendanceGrid({
           prev.map((s) => {
             const k = cellKey(week, slot);
             const nextStatuses = { ...s.statuses };
-            const prevStatus = prevColumn.get(s.id);
-            if (prevStatus) nextStatuses[k] = prevStatus;
+            const previous = prevColumn.get(s.id);
+            if (previous?.status) nextStatuses[k] = previous.status;
             else delete nextStatuses[k];
-            return { ...s, statuses: nextStatuses };
+            const nextManualKeys = { ...s.manualKeys };
+            if (previous?.manual) nextManualKeys[k] = true;
+            else delete nextManualKeys[k];
+            return { ...s, statuses: nextStatuses, manualKeys: nextManualKeys };
           }),
         );
         const msg = e instanceof Error ? e.message : String(e);
         console.error("setSubjectAttendanceForSlot failed", { week, slot, setPresent, error: e });
         alert(`บันทึกไม่สำเร็จ: ${msg}`);
       }
+    });
+  };
+
+  const formatSessionDate = (iso: string) => {
+    const [, month, day] = iso.split("-");
+    return `${Number(day)}/${Number(month)}`;
+  };
+
+  const saveSessionDate = (restore = false) => {
+    if (!editingSession) return;
+    setOverrideError(null);
+    startOverrideTransition(async () => {
+      const result = await saveSubjectScheduleOverride(
+        offeringId,
+        editingSession.week,
+        editingSession.slot,
+        restore ? null : editingSession.date,
+      );
+      if (!result.ok) {
+        setOverrideError(result.error);
+        return;
+      }
+      setEditingSession(null);
+      router.refresh();
     });
   };
 
@@ -310,10 +388,15 @@ export function SubjectAttendanceGrid({
               const week = firstWeek + wi;
               return Array.from({ length: slotsPerWeek }, (_, si) => {
                 const slot = si + 1;
+                const key = cellKey(week, slot);
+                const sessionDate = sessionDates[key];
+                const isOverride = overrideKeys.includes(key);
                 const allPresent =
                   students.length > 0 &&
                   students.every(
-                    (s) => s.statuses[cellKey(week, slot)] === "present",
+                    (s) =>
+                      s.statuses[key] === "present" &&
+                      s.manualKeys[key] === true,
                   );
                 return (
                   <th
@@ -341,6 +424,29 @@ export function SubjectAttendanceGrid({
                     <div className="leading-none">
                       {(week - 1) * slotsPerWeek + slot}
                     </div>
+                    {sessionDate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOverrideError(null);
+                          setEditingSession({ week, slot, date: sessionDate });
+                        }}
+                        title={
+                          isOverride
+                            ? "วันเรียนชดเชย — คลิกเพื่อแก้ไขหรือคืนวันเดิม"
+                            : "วันที่เรียน — คลิกเพื่อย้ายวันเฉพาะสัปดาห์นี้"
+                        }
+                        className={
+                          "mt-1 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] leading-none hover:bg-indigo-100 " +
+                          (isOverride
+                            ? "bg-amber-100 font-semibold text-amber-800"
+                            : "text-indigo-600")
+                        }
+                      >
+                        <CalendarClock className="size-2.5" />
+                        {formatSessionDate(sessionDate)}
+                      </button>
+                    )}
                   </th>
                 );
               });
@@ -383,6 +489,8 @@ export function SubjectAttendanceGrid({
                     const slot = si + 1;
                     const k = cellKey(week, slot);
                     const status = s.statuses[k];
+                    const inheritedFromDaily =
+                      !!status && s.manualKeys[k] !== true && !!s.dailyStatuses[k];
                     return (
                       <td
                         key={k}
@@ -403,12 +511,22 @@ export function SubjectAttendanceGrid({
                             )
                           }
                           aria-label={`สัปดาห์ ${week} ช่อง ${slot} ของ ${s.full_label}`}
+                          title={
+                            inheritedFromDaily
+                              ? "ดึงจากเช็กชื่อรายวัน · เลือกค่าใหม่เพื่อแก้เฉพาะรายวิชา"
+                              : s.manualKeys[k]
+                                ? "ครูรายวิชาบันทึกแล้ว"
+                                : "ยังไม่ได้บันทึก"
+                          }
                           className={
                             "h-7 w-7 cursor-pointer appearance-none border-0 px-0 text-center text-sm font-semibold leading-none transition-colors hover:bg-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-400 " +
-                            (status ? STATUS_CLASS[status] : "bg-transparent text-zinc-300")
+                            (status ? STATUS_CLASS[status] : "bg-transparent text-zinc-300") +
+                            (inheritedFromDaily ? " ring-1 ring-inset ring-blue-400" : "")
                           }
                         >
-                          <option value="">—</option>
+                          <option value="">
+                            {s.dailyStatuses[k] ? "ใช้ค่ารายวัน" : "—"}
+                          </option>
                           <option value="present">{STATUS_LABEL.present}</option>
                           <option value="absent">{STATUS_LABEL.absent}</option>
                           <option value="leave">{STATUS_LABEL.leave}</option>
@@ -466,10 +584,103 @@ export function SubjectAttendanceGrid({
           ลา
         </span>
         <span className="text-zinc-400">·</span>
+        <span className="inline-flex items-center gap-1 text-blue-700">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-blue-50 ring-1 ring-inset ring-blue-400">
+            / ข ล
+          </span>
+          ขอบน้ำเงิน = ดึงจากเช็กชื่อรายวัน
+        </span>
+        <span className="text-zinc-400">·</span>
         <span className="text-zinc-500">
-          คลิกช่องเพื่อเลือก · คลิก ✓ ในส่วนหัวช่องเพื่อให้ทั้งห้องมาเรียนช่องนั้น
+          คลิกช่องเพื่อแก้เฉพาะรายวิชา · คลิกวันที่ใต้หัวช่องเมื่อต้องย้ายวันเรียน
         </span>
       </div>
+
+      {editingSession && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="makeup-date-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !overridePending) {
+              setEditingSession(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-zinc-200 px-5 py-4">
+              <div>
+                <h2 id="makeup-date-title" className="font-semibold text-zinc-900">
+                  เปลี่ยนวันที่เรียนเฉพาะครั้ง
+                </h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  สัปดาห์ที่ {editingSession.week} · ช่องที่ {editingSession.slot}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSession(null)}
+                disabled={overridePending}
+                className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                aria-label="ปิด"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              <label className="block text-sm font-medium text-zinc-700">
+                วันที่เรียนจริง
+                <input
+                  type="date"
+                  value={editingSession.date}
+                  onChange={(event) =>
+                    setEditingSession((current) =>
+                      current ? { ...current, date: event.target.value } : current,
+                    )
+                  }
+                  disabled={overridePending}
+                  className="mt-1.5 block w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                />
+              </label>
+              <p className="text-xs leading-5 text-zinc-500">
+                ระบบจะดึงเช็กชื่อรายวันของวันที่ใหม่นี้ โดยไม่แก้ข้อมูลเช็กชื่อช่วงเช้า
+              </p>
+              {overrideError && (
+                <p role="alert" className="text-sm text-red-700">
+                  {overrideError}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-zinc-200 px-5 py-4">
+              <div>
+                {overrideKeys.includes(
+                  cellKey(editingSession.week, editingSession.slot),
+                ) && baseSessionDates[cellKey(editingSession.week, editingSession.slot)] && (
+                  <button
+                    type="button"
+                    onClick={() => saveSessionDate(true)}
+                    disabled={overridePending}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-900 disabled:opacity-60"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    คืนวันตามตาราง
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => saveSessionDate(false)}
+                disabled={overridePending || !editingSession.date}
+                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
+              >
+                {overridePending && <Loader2 className="size-4 animate-spin" />}
+                {overridePending ? "กำลังบันทึก..." : "บันทึกวันที่"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

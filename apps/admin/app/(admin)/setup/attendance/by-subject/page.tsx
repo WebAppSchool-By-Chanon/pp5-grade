@@ -5,12 +5,14 @@ import { BookOpen, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 import { getCurrentTerm } from "@/lib/current-term";
+import { loadLinkedSubjectAttendance } from "@/lib/subject-attendance-link";
 import { getTeacherScope } from "@/lib/teacher-scope";
 import { DirectPrintButton } from "../../../_components/direct-print-button";
 import { FilterNavProvider } from "../../_components/filter-nav-context";
 import { FilterNavGate } from "../../_components/filter-nav-gate";
 import { OptimisticTabs } from "../../_components/optimistic-tabs";
 import { BySubjectSelector } from "./selector";
+import { SubjectScheduleButton } from "./subject-schedule-button";
 import {
   SubjectAttendanceGrid,
   type SubjectStudentRow,
@@ -459,6 +461,33 @@ export default async function BySubjectPage({ searchParams }: Props) {
     weekLabels.push(formatWeekRangeLabel(anchorIso, w));
   }
 
+  // Recurring schedule settings are loaded here for the settings button.
+  // Query errors are tolerated so schools that have not run the migration
+  // still see the old attendance grid plus a clear migration warning.
+  const [scheduleResult, overrideProbe] = selectedOfferingId
+    ? await Promise.all([
+        supabase
+          .from("subject_schedule_slots")
+          .select("slot_in_week, weekday")
+          .eq("offering_id", selectedOfferingId),
+        supabase
+          .from("subject_schedule_overrides")
+          .select("id")
+          .eq("offering_id", selectedOfferingId)
+          .limit(1),
+      ])
+    : [
+        { data: [], error: null },
+        { data: [], error: null },
+      ];
+  const scheduleSchemaReady = !scheduleResult.error && !overrideProbe.error;
+  const initialWeekdays: Array<number | null> = Array.from(
+    { length: slotsPerWeek },
+    (_, index) =>
+      scheduleResult.data?.find((row) => row.slot_in_week === index + 1)
+        ?.weekday ?? null,
+  );
+
   const roomShortLabel =
     roomsInGrade.length > 1
       ? `${selectedGrade.name_short}/${selectedClassroom.room_number}`
@@ -545,7 +574,7 @@ export default async function BySubjectPage({ searchParams }: Props) {
           <ul className="mt-2 inline-block text-left text-xs text-zinc-500">
             <li>• มีวิชาในแผนของห้อง (ที่ /setup/subjects)</li>
             <li>• กำหนดครูเข้าสอนวิชานั้น (ที่ /setup/teaching)</li>
-            <li>• ไม่ใช่วิชา "กิจกรรม" (กิจกรรมใช้ผ่าน/ไม่ผ่าน ไม่นับเวลา)</li>
+            <li>• ไม่ใช่วิชา &quot;กิจกรรม&quot; (กิจกรรมใช้ผ่าน/ไม่ผ่าน ไม่นับเวลา)</li>
           </ul>
         </Card>
       ) : (
@@ -567,11 +596,29 @@ export default async function BySubjectPage({ searchParams }: Props) {
                 {totalSlots} ช่อง/ภาค
               </p>
             </div>
-            <DirectPrintButton
-              url={`/reports/attendance-by-subject?classroom=${selectedClassroom.id}&subject=${selectedSubject.id}&semester=${currentSemester}&embed=1`}
-              title="พิมพ์ตารางเวลาเรียน 20 สัปดาห์ (ทั้งภาคเรียน)"
-            />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <SubjectScheduleButton
+                offeringId={selectedOfferingId}
+                slotsPerWeek={slotsPerWeek}
+                initialWeekdays={initialWeekdays}
+                schemaReady={scheduleSchemaReady}
+              />
+              <DirectPrintButton
+                url={`/reports/attendance-by-subject?classroom=${selectedClassroom.id}&subject=${selectedSubject.id}&semester=${currentSemester}&embed=1`}
+                title="พิมพ์ตารางเวลาเรียน 20 สัปดาห์ (ทั้งภาคเรียน)"
+              />
+            </div>
           </div>
+
+          {!scheduleSchemaReady && (
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+              ฟังก์ชันเชื่อมเช็กชื่อยังไม่พร้อม — กรุณารันไฟล์ SQL{" "}
+              <code className="font-mono font-semibold">
+                migrations/20260914_link_daily_subject_attendance.sql
+              </code>
+              {" "}ใน Supabase ก่อน
+            </div>
+          )}
 
           {/* Week-range tabs — 4 tabs ครอบ 5 สัปดาห์/tab */}
           <div className="flex gap-1 border-b border-zinc-200 bg-white px-3 pt-2">
@@ -601,6 +648,7 @@ export default async function BySubjectPage({ searchParams }: Props) {
               slotsPerWeek={slotsPerWeek}
               weekRange={weekRange}
               weekLabels={weekLabels}
+              anchorIso={anchorIso}
               isPrimary={isPrimary}
               totalSlots={totalSlots}
             />
@@ -635,6 +683,7 @@ async function GridSection({
   slotsPerWeek,
   weekRange,
   weekLabels,
+  anchorIso,
   isPrimary,
   totalSlots,
 }: {
@@ -645,6 +694,7 @@ async function GridSection({
   weekRange: [number, number];
   /** Date-range label per week in `weekRange` (5 entries). */
   weekLabels: string[];
+  anchorIso: string;
   isPrimary: boolean;
   totalSlots: number;
 }) {
@@ -653,43 +703,10 @@ async function GridSection({
   // Enrollment scope: primary → 0 (year-wide), secondary → active term
   const enrollmentSemester: 0 | 1 | 2 = isPrimary ? 0 : semester;
 
-  // Subject attendance: PostgREST `max-rows` defaults to 1000 in Supabase.
-  // A fully-recorded offering can exceed 1000 rows (e.g. 18 students ×
-  // 80 slots ≈ 1440), and an un-paginated `.select()` would silently
-  // truncate — making the newest cells "disappear" on refresh even though
-  // the DB has them. Paginate with `.range()` until we get a short page.
-  async function fetchAllAttendance() {
-    const PAGE = 1000;
-    type Row = {
-      student_id: string;
-      week: number;
-      slot_in_week: number;
-      status: "present" | "absent" | "leave" | "sick";
-    };
-    const all: Row[] = [];
-    let from = 0;
-    while (true) {
-      const { data, error } = await supabase
-        .from("subject_attendance")
-        .select("student_id, week, slot_in_week, status")
-        .eq("offering_id", offeringId)
-        .order("week", { ascending: true })
-        .order("slot_in_week", { ascending: true })
-        .range(from, from + PAGE - 1);
-      if (error) return { data: null, error };
-      if (!data || data.length === 0) break;
-      all.push(...(data as Row[]));
-      if (data.length < PAGE) break;
-      from += PAGE;
-    }
-    return { data: all, error: null };
-  }
-
-  const [enrollResult, attendanceResult] = await Promise.all([
-    supabase
-      .from("enrollments")
-      .select(
-        `
+  const enrollResult = await supabase
+    .from("enrollments")
+    .select(
+      `
         student_number,
         student:students!student_id (
           id,
@@ -698,23 +715,25 @@ async function GridSection({
           last_name
         )
       `,
-      )
-      .eq("classroom_id", classroomId)
-      .eq("semester", enrollmentSemester)
-      .order("student_number"),
-    fetchAllAttendance(),
-  ]);
+    )
+    .eq("classroom_id", classroomId)
+    .eq("semester", enrollmentSemester)
+    .order("student_number");
 
-  // Index attendance: "week|slot" → status, keyed per student
-  const attMap = new Map<string, Record<string, "present" | "absent" | "leave">>();
-  for (const a of attendanceResult.data ?? []) {
-    const key = `${a.week}|${a.slot_in_week}`;
-    if (!attMap.has(a.student_id)) attMap.set(a.student_id, {});
-    // UI only handles 3 statuses — skip "sick" if it somehow slipped in
-    if (a.status === "present" || a.status === "absent" || a.status === "leave") {
-      attMap.get(a.student_id)![key] = a.status;
-    }
-  }
+  const studentIds = (enrollResult.data ?? [])
+    .filter((entry) => entry.student)
+    .map((entry) => entry.student!.id);
+  const linked = await loadLinkedSubjectAttendance({
+    offeringId,
+    classroomId,
+    studentIds,
+    slotsPerWeek,
+    anchorIso,
+  });
+
+  const cellsToRecord = (
+    cells: Map<string, "present" | "absent" | "leave"> | undefined,
+  ) => Object.fromEntries(cells ?? []);
 
   const students: SubjectStudentRow[] = (enrollResult.data ?? [])
     .filter((e) => e.student)
@@ -722,7 +741,16 @@ async function GridSection({
       id: e.student!.id,
       student_number: e.student_number,
       full_label: `${abbreviateTitle(e.student!.title)}${e.student!.first_name} ${e.student!.last_name}`,
-      statuses: attMap.get(e.student!.id) ?? {},
+      statuses: cellsToRecord(linked.cellsByStudent.get(e.student!.id)),
+      dailyStatuses: cellsToRecord(
+        linked.dailyCellsByStudent.get(e.student!.id),
+      ),
+      manualKeys: Object.fromEntries(
+        Array.from(
+          linked.manualCellsByStudent.get(e.student!.id)?.keys() ?? [],
+          (key) => [key, true],
+        ),
+      ),
     }));
 
   if (students.length === 0) {
@@ -739,9 +767,19 @@ async function GridSection({
     );
   }
 
+  // Remount the optimistic client grid whenever a server refresh brings new
+  // daily attendance or a changed session date. useState(initialStudents)
+  // intentionally owns local clicks, so a stable key would otherwise keep a
+  // stale snapshot after changing the timetable.
+  const gridRevision = JSON.stringify({
+    dates: Array.from(linked.sessionDates),
+    cells: students.map((student) => [student.id, student.statuses]),
+  });
+
   return (
     <div className="p-3">
       <SubjectAttendanceGrid
+        key={gridRevision}
         offeringId={offeringId}
         classroomId={classroomId}
         semester={semester}
@@ -750,6 +788,9 @@ async function GridSection({
         weekLabels={weekLabels}
         totalSlots={totalSlots}
         students={students}
+        sessionDates={Object.fromEntries(linked.sessionDates)}
+        baseSessionDates={Object.fromEntries(linked.baseSessionDates)}
+        overrideKeys={Array.from(linked.overrideKeys)}
       />
     </div>
   );

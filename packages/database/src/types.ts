@@ -1104,6 +1104,79 @@ export type Database = {
           },
         ]
       }
+      subject_schedule_overrides: {
+        Row: {
+          created_at: string
+          id: string
+          offering_id: string
+          session_date: string
+          slot_in_week: number
+          updated_at: string
+          week: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          offering_id: string
+          session_date: string
+          slot_in_week: number
+          updated_at?: string
+          week: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          offering_id?: string
+          session_date?: string
+          slot_in_week?: number
+          updated_at?: string
+          week?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subject_schedule_overrides_offering_id_fkey"
+            columns: ["offering_id"]
+            isOneToOne: false
+            referencedRelation: "subject_offerings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subject_schedule_slots: {
+        Row: {
+          created_at: string
+          id: string
+          offering_id: string
+          slot_in_week: number
+          updated_at: string
+          weekday: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          offering_id: string
+          slot_in_week: number
+          updated_at?: string
+          weekday: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          offering_id?: string
+          slot_in_week?: number
+          updated_at?: string
+          weekday?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subject_schedule_slots_offering_id_fkey"
+            columns: ["offering_id"]
+            isOneToOne: false
+            referencedRelation: "subject_offerings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subject_offerings: {
         Row: {
           classroom_id: string

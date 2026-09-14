@@ -112,6 +112,8 @@ ALTER TABLE grades ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workdays ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subject_attendance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subject_schedule_slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subject_schedule_overrides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE characteristics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE characteristic_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reading_thinking_evaluations ENABLE ROW LEVEL SECURITY;
@@ -397,6 +399,30 @@ CREATE POLICY "subject_attendance_teacher_write" ON subject_attendance
     WITH CHECK (is_teacher() AND teacher_teaches_offering(offering_id));
 
 CREATE POLICY "subject_attendance_admin_all" ON subject_attendance
+    FOR ALL USING (is_admin()) WITH CHECK (is_admin());
+
+
+-- SUBJECT_SCHEDULE: staff อ่าน · ครูผู้สอนแก้ตารางของวิชาตัวเอง · admin เต็ม
+CREATE POLICY "subject_schedule_slots_staff_read" ON subject_schedule_slots
+    FOR SELECT USING (is_staff());
+
+CREATE POLICY "subject_schedule_slots_teacher_write" ON subject_schedule_slots
+    FOR ALL
+    USING (is_teacher() AND teacher_teaches_offering(offering_id))
+    WITH CHECK (is_teacher() AND teacher_teaches_offering(offering_id));
+
+CREATE POLICY "subject_schedule_slots_admin_all" ON subject_schedule_slots
+    FOR ALL USING (is_admin()) WITH CHECK (is_admin());
+
+CREATE POLICY "subject_schedule_overrides_staff_read" ON subject_schedule_overrides
+    FOR SELECT USING (is_staff());
+
+CREATE POLICY "subject_schedule_overrides_teacher_write" ON subject_schedule_overrides
+    FOR ALL
+    USING (is_teacher() AND teacher_teaches_offering(offering_id))
+    WITH CHECK (is_teacher() AND teacher_teaches_offering(offering_id));
+
+CREATE POLICY "subject_schedule_overrides_admin_all" ON subject_schedule_overrides
     FOR ALL USING (is_admin()) WITH CHECK (is_admin());
 
 
