@@ -1,4 +1,4 @@
 {
-  "version": "1.1.0",
-  "notes": "เชื่อมเช็กชื่อรายวันกับรายวิชา พร้อมวันเรียนชดเชย · หลังอัปเดตต้องรัน migrations/20260914_link_daily_subject_attendance.sql ใน Supabase"
+  "version": "1.2.0",
+  "notes": "เพิ่มการประเมินความสามารถของผู้เรียน 8 ด้านแบบรายปี · โรงเรียนเดิมต้องรัน migrations/20261006_student_abilities.sql ใน Supabase"
 }

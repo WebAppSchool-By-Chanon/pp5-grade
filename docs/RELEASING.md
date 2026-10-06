@@ -40,5 +40,6 @@ SQL เพิ่มเองหลัง Sync fork (Supabase Dashboard → SQL E
 | ไลเซนส์ | (รวมใน `setup.sql`) | `ALTER TABLE schools ADD COLUMN IF NOT EXISTS license_key TEXT;` |
 | เรียงเลขที่ตามเพศ | `migrations/20260620_classrooms_number_mode.sql` | `ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS number_mode TEXT DEFAULT 'code';` |
 | เชื่อมเช็กชื่อรายวันกับรายวิชา | `migrations/20260914_link_daily_subject_attendance.sql` | รันไฟล์ทั้งไฟล์ (เพิ่ม 2 ตาราง + RLS) |
+| ประเมินความสามารถของผู้เรียน 8 ด้าน | `migrations/20261006_student_abilities.sql` | รันไฟล์ทั้งไฟล์ (เพิ่มตารางรายปี + RLS) |
 
 > ทุก migration ใช้ `IF NOT EXISTS` → รันซ้ำได้ปลอดภัย ถ้าไม่แน่ใจว่ารันไปหรือยัง รันได้เลย

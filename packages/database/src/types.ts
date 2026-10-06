@@ -45,6 +45,76 @@ export type Database = {
         }
         Relationships: []
       }
+      ability_evaluations: {
+        Row: {
+          academic_year_id: string
+          art_score: number | null
+          computer_score: number | null
+          evaluated_at: string | null
+          evaluated_by: string | null
+          id: string
+          interpersonal_score: number | null
+          language_score: number | null
+          music_score: number | null
+          nature_score: number | null
+          self_understanding_score: number | null
+          sports_score: number | null
+          student_id: string
+        }
+        Insert: {
+          academic_year_id: string
+          art_score?: number | null
+          computer_score?: number | null
+          evaluated_at?: string | null
+          evaluated_by?: string | null
+          id?: string
+          interpersonal_score?: number | null
+          language_score?: number | null
+          music_score?: number | null
+          nature_score?: number | null
+          self_understanding_score?: number | null
+          sports_score?: number | null
+          student_id: string
+        }
+        Update: {
+          academic_year_id?: string
+          art_score?: number | null
+          computer_score?: number | null
+          evaluated_at?: string | null
+          evaluated_by?: string | null
+          id?: string
+          interpersonal_score?: number | null
+          language_score?: number | null
+          music_score?: number | null
+          nature_score?: number | null
+          self_understanding_score?: number | null
+          sports_score?: number | null
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ability_evaluations_academic_year_id_fkey"
+            columns: ["academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ability_evaluations_evaluated_by_fkey"
+            columns: ["evaluated_by"]
+            isOneToOne: false
+            referencedRelation: "teachers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ability_evaluations_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       announcements: {
         Row: {
           classroom_id: string | null

@@ -13,6 +13,7 @@ type Props = {
   selectedGradeId: string;
   rooms: RoomOption[];
   selectedRoomId: string;
+  basePath?: string;
 };
 
 /** Top selector for /setup/competency — grade + room dropdowns. */
@@ -21,6 +22,7 @@ export function CompetencySelector({
   selectedGradeId,
   rooms,
   selectedRoomId,
+  basePath = "/setup/competency",
 }: Props) {
   const router = useRouter();
   const { startNav } = useFilterNav();
@@ -34,7 +36,7 @@ export function CompetencySelector({
     const params = new URLSearchParams();
     if (grade) params.set("grade", grade);
     if (room) params.set("room", room);
-    router.push(`/setup/competency?${params.toString()}`);
+    router.push(`${basePath}?${params.toString()}`);
   };
 
   return (

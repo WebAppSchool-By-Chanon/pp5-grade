@@ -41,6 +41,7 @@ const ROUTE_MAP: Record<string, { label: string; parent?: string }> = {
   "/setup/characteristics": { label: "คุณลักษณะ", parent: "การประเมิน" },
   "/setup/reading-thinking": { label: "อ่าน คิด เขียน", parent: "การประเมิน" },
   "/setup/competency": { label: "สมรรถนะสำคัญ", parent: "การประเมิน" },
+  "/setup/abilities": { label: "ความสามารถ 8 ด้าน", parent: "การประเมิน" },
 };
 
 /** Resolve the closest known label for an arbitrary pathname. */

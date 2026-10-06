@@ -47,3 +47,6 @@ files.zip
 license-tools/private.pem
 license-tools/public.pem
 license-tools/hmac-secret.txt
+
+# Historical assessment workbook contains identifiable student data.
+/สรุปประเมินความสามารถ-รวม-2568.xlsx

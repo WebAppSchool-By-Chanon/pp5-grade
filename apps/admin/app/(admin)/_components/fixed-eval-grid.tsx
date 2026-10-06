@@ -2,6 +2,7 @@
 
 import { Select } from "@pp5/ui";
 import { useState, useTransition } from "react";
+import { abilityTotal, summarizeAbility } from "@/lib/ability-eval";
 import {
   cellColorClass,
   summarize0to3,
@@ -52,6 +53,8 @@ type Props = {
    *  scope for read + write of the eval table's `semester` column. */
   semester: 0 | 1 | 2;
   readonly?: boolean;
+  summaryRule?: "mode" | "ability";
+  showTotal?: boolean;
   saveAction: FixedSaveAction;
   bulkAction: FixedBulkAction;
 };
@@ -76,10 +79,12 @@ export function FixedEvalGrid({
   yearId,
   semester,
   readonly = false,
+  summaryRule = "mode",
+  showTotal = false,
   saveAction,
   bulkAction,
 }: Props) {
-  const tableMinW = NUM_W + NAME_W + CELL_W * columns.length + SUMMARY_W;
+  const tableMinW = NUM_W + NAME_W + CELL_W * columns.length + SUMMARY_W * (showTotal ? 2 : 1);
 
   return (
     <div className="overflow-x-auto">
@@ -93,6 +98,7 @@ export function FixedEvalGrid({
           {columns.map((c) => (
             <col key={c.field} style={{ width: CELL_W }} />
           ))}
+          {showTotal ? <col style={{ width: SUMMARY_W }} /> : null}
           <col style={{ width: SUMMARY_W }} />
         </colgroup>
 
@@ -142,6 +148,14 @@ export function FixedEvalGrid({
                 </th>
               );
             })}
+            {showTotal ? (
+              <th
+                style={{ width: SUMMARY_W }}
+                className="border-b border-l border-zinc-200 bg-zinc-100 px-2 py-2 text-center text-xs font-medium text-zinc-700"
+              >
+                รวม
+              </th>
+            ) : null}
             <th
               style={{ width: SUMMARY_W }}
               className="border-b border-l border-zinc-200 bg-zinc-100 px-2 py-2 text-center text-xs font-medium text-zinc-700"
@@ -160,9 +174,12 @@ export function FixedEvalGrid({
               key={`${s.id}|${columns.map((c) => s.scores[c.field] ?? "").join(",")}`}
               student={s}
               columns={columns}
+              classroomId={classroomId}
               yearId={yearId}
               semester={semester}
               readonly={readonly}
+              summaryRule={summaryRule}
+              showTotal={showTotal}
               saveAction={saveAction}
               alt={i % 2 === 0}
             />
@@ -243,19 +260,25 @@ function BulkColumnButton({
 function Row({
   student,
   columns,
+  classroomId,
   yearId,
   semester,
   readonly,
+  summaryRule,
+  showTotal,
   saveAction,
   alt,
 }: {
   student: FixedStudentRow;
   columns: FixedColumn[];
+  classroomId: string;
   yearId: string;
   /** 0 = annual (primary) · 1 / 2 = per-semester (secondary). Used as the
    *  scope for read + write of the eval table's `semester` column. */
   semester: 0 | 1 | 2;
   readonly: boolean;
+  summaryRule: "mode" | "ability";
+  showTotal: boolean;
   saveAction: FixedSaveAction;
   alt: boolean;
 }) {
@@ -267,9 +290,12 @@ function Row({
   const view = (field: string): number | null =>
     field in pending ? pending[field] : (student.scores[field] ?? null);
 
-  const summary: EvalLabel | null = summarize0to3(
-    columns.map((c) => view(c.field)),
-  );
+  const rowScores = columns.map((c) => view(c.field));
+  const summary: EvalLabel | null =
+    summaryRule === "ability"
+      ? summarizeAbility(rowScores)
+      : summarize0to3(rowScores);
+  const total = showTotal ? abilityTotal(rowScores) : null;
 
   const handleChange = (field: string, raw: string) => {
     if (readonly) return;
@@ -285,6 +311,7 @@ function Row({
 
     const fd = new FormData();
     fd.set("student_id", student.id);
+    fd.set("classroom_id", classroomId);
     fd.set("year_id", yearId);
     fd.set("semester", String(semester));
     fd.set("field", field);
@@ -294,7 +321,8 @@ function Row({
         await saveAction(fd);
         // Server revalidated → prop will now match. Clear the override.
         setPending((p) => {
-          const { [field]: _omit, ...rest } = p;
+          const rest = { ...p };
+          delete rest[field];
           return rest;
         });
       } catch (err) {
@@ -360,6 +388,14 @@ function Row({
           </td>
         );
       })}
+      {showTotal ? (
+        <td
+          style={{ width: SUMMARY_W }}
+          className="border-b border-l border-zinc-200 px-2 py-1 text-center font-medium tabular-nums"
+        >
+          {total ?? "—"}
+        </td>
+      ) : null}
       <td
         style={{ width: SUMMARY_W }}
         className="border-b border-l border-zinc-200 px-2 py-1 text-center"

@@ -118,6 +118,8 @@ ALTER TABLE characteristics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE characteristic_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reading_thinking_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE competency_evaluations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ability_evaluations ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ability_evaluations TO authenticated;
 ALTER TABLE holidays ENABLE ROW LEVEL SECURITY;
 ALTER TABLE grade_scales ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
@@ -540,6 +542,34 @@ CREATE POLICY "comp_eval_homeroom_write" ON competency_evaluations
 
 CREATE POLICY "comp_eval_admin_all" ON competency_evaluations
     FOR ALL USING (is_admin()) WITH CHECK (is_admin());
+
+-- ABILITY_EVALUATIONS: ครูประจำชั้นประเมินเฉพาะนักเรียนปีนั้น
+CREATE POLICY "ability_eval_staff_read" ON ability_evaluations
+    FOR SELECT TO authenticated USING (is_staff());
+CREATE POLICY "ability_eval_student_read_own" ON ability_evaluations
+    FOR SELECT TO authenticated USING (student_id = current_student_id());
+CREATE POLICY "ability_eval_homeroom_write" ON ability_evaluations
+    FOR ALL TO authenticated
+    USING (
+        is_teacher() AND EXISTS (
+            SELECT 1 FROM enrollments e
+            JOIN classrooms c ON c.id = e.classroom_id
+            WHERE e.student_id = ability_evaluations.student_id
+              AND c.academic_year_id = ability_evaluations.academic_year_id
+              AND teacher_is_homeroom_of(c.id)
+        )
+    )
+    WITH CHECK (
+        is_teacher() AND EXISTS (
+            SELECT 1 FROM enrollments e
+            JOIN classrooms c ON c.id = e.classroom_id
+            WHERE e.student_id = ability_evaluations.student_id
+              AND c.academic_year_id = ability_evaluations.academic_year_id
+              AND teacher_is_homeroom_of(c.id)
+        )
+    );
+CREATE POLICY "ability_eval_admin_all" ON ability_evaluations
+    FOR ALL TO authenticated USING (is_admin()) WITH CHECK (is_admin());
 
 
 -- =====================================================================

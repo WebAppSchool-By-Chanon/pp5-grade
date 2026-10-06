@@ -770,6 +770,27 @@ CREATE INDEX idx_comp_eval_student ON competency_evaluations(student_id);
 
 COMMENT ON TABLE competency_evaluations IS 'ประเมินสมรรถนะสำคัญ 5 ด้านตายตัว';
 
+-- การประเมินความสามารถของผู้เรียน 8 ด้าน (รายปี แยกจากสมรรถนะสำคัญ)
+CREATE TABLE ability_evaluations (
+    id                       UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id               UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    academic_year_id         UUID NOT NULL REFERENCES academic_years(id) ON DELETE CASCADE,
+    art_score                INTEGER CHECK (art_score BETWEEN 0 AND 3),
+    language_score           INTEGER CHECK (language_score BETWEEN 0 AND 3),
+    music_score              INTEGER CHECK (music_score BETWEEN 0 AND 3),
+    sports_score             INTEGER CHECK (sports_score BETWEEN 0 AND 3),
+    computer_score           INTEGER CHECK (computer_score BETWEEN 0 AND 3),
+    interpersonal_score      INTEGER CHECK (interpersonal_score BETWEEN 0 AND 3),
+    self_understanding_score INTEGER CHECK (self_understanding_score BETWEEN 0 AND 3),
+    nature_score             INTEGER CHECK (nature_score BETWEEN 0 AND 3),
+    evaluated_by             UUID REFERENCES teachers(id),
+    evaluated_at             TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(student_id, academic_year_id)
+);
+CREATE INDEX idx_ability_eval_student ON ability_evaluations(student_id);
+COMMENT ON TABLE ability_evaluations IS 'ประเมินความสามารถของผู้เรียน 8 ด้าน รายปี';
+GRANT SELECT, INSERT, UPDATE, DELETE ON ability_evaluations TO authenticated;
+
 
 -- =====================================================================
 -- MODULE 7: SYSTEM SETTINGS
