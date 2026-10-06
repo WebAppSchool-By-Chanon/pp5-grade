@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@pp5/database/admin";
+import type { Database } from "@pp5/database";
 import { revalidatePath } from "next/cache";
 import { requireWriteAccess } from "@/lib/access";
 import { ABILITY_COLUMNS, type AbilityField } from "@/lib/ability-eval";
@@ -10,6 +11,15 @@ import {
 } from "@/lib/teacher-scope";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
+type AbilityTable = Database["public"]["Tables"]["ability_evaluations"];
+type AbilityScorePatch = Pick<AbilityTable["Update"], AbilityField>;
+
+/** Keep computed score keys within the database schema for typed mutations. */
+function scorePatch(field: AbilityField, score: number | null): AbilityScorePatch {
+  const patch: AbilityScorePatch = {};
+  patch[field] = score;
+  return patch;
+}
 
 function parseScore(raw: string): number | null {
   if (raw === "") return null;
@@ -41,16 +51,17 @@ async function insertMissingScore(
   score: number | null,
 ): Promise<void> {
   if (score === null) return;
-  const { error } = await admin.from("ability_evaluations").insert({
+  const payload: AbilityTable["Insert"] = {
     student_id: studentId,
     academic_year_id: yearId,
-    [field]: score,
-  });
+    ...scorePatch(field, score),
+  };
+  const { error } = await admin.from("ability_evaluations").insert(payload);
   if (!error) return;
   if (error.code !== "23505") throw new Error(error.message);
   const { data: updated, error: retryError } = await admin
     .from("ability_evaluations")
-    .update({ [field]: score })
+    .update(scorePatch(field, score))
     .eq("student_id", studentId)
     .eq("academic_year_id", yearId)
     .select("student_id");
@@ -95,7 +106,7 @@ export async function saveAbilityScore(formData: FormData): Promise<void> {
 
   const { data: updated, error } = await admin
     .from("ability_evaluations")
-    .update({ [field]: score })
+    .update(scorePatch(field, score))
     .eq("student_id", studentId)
     .eq("academic_year_id", yearId)
     .select("student_id");
@@ -144,7 +155,7 @@ export async function setAllAbilitiesForColumn(
 
   const { data: updated, error } = await admin
     .from("ability_evaluations")
-    .update({ [field]: score })
+    .update(scorePatch(field, score))
     .eq("academic_year_id", yearId)
     .in("student_id", studentIds)
     .select("student_id");
