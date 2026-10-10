@@ -2,6 +2,7 @@
 
 import { Loader2, Printer } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { resolveCoverPeriod, type CoverPeriod } from "@/lib/pp5-cover-period";
 
 // Section keys — mirrors `/reports/pp5-class` page.tsx `resolveParts`.
 const SECTION_KEYS = [
@@ -29,10 +30,12 @@ export type ClassroomOption = {
   grade_id: string;
   grade_label: string;
   grade_sort: number;
+  is_primary: boolean;
 };
 
 type Props = {
   classrooms: ClassroomOption[];
+  currentSemester?: number;
 };
 
 // 210mm at 96dpi ≈ 793px — A4 portrait paper box width.
@@ -50,7 +53,7 @@ const PAPER_WIDTH_PX = 793;
  * inherits the same wrapper + container-query layout from pp5-selector-form,
  * including the narrow-screen tab switcher + auto-fit zoom dropdown.
  */
-export function Pp5ClassSelectorForm({ classrooms }: Props) {
+export function Pp5ClassSelectorForm({ classrooms, currentSemester = 1 }: Props) {
   // ───────── Selectors ─────────
   const grades = useMemo(() => {
     const seen = new Map<
@@ -96,6 +99,8 @@ export function Pp5ClassSelectorForm({ classrooms }: Props) {
   // No fallback to rooms[0] — only show preview when user has explicitly
   // picked a room (or the auto-select above resolved a single-room grade).
   const selectedRoom = rooms.find((r) => r.id === roomId) ?? null;
+  const [coverPeriodChoice, setCoverPeriodChoice] = useState<CoverPeriod | undefined>();
+  const coverPeriod = resolveCoverPeriod(coverPeriodChoice, selectedRoom?.is_primary ?? false, currentSemester);
 
   // Section toggles
   const [sections, setSections] = useState<Record<SectionKey, boolean>>({
@@ -112,7 +117,7 @@ export function Pp5ClassSelectorForm({ classrooms }: Props) {
 
   const canPreview = !!(selectedRoom && enabledSections.length > 0);
   const previewSrc = canPreview
-    ? `/reports/pp5-class?classroom=${selectedRoom!.id}&embed=1${
+    ? `/reports/pp5-class?classroom=${selectedRoom!.id}&embed=1&cover_period=${coverPeriod}${
         allEnabled ? "" : `&parts=${partsParam}`
       }`
     : null;
@@ -231,6 +236,7 @@ export function Pp5ClassSelectorForm({ classrooms }: Props) {
                   value={gradeId}
                   onChange={(e) => {
                     setGradeId(e.target.value);
+                    setCoverPeriodChoice(undefined);
                     // Reset room selection when grade changes — force the
                     // user to pick a room again so the preview doesn't
                     // surprise-load a room from the new grade.
@@ -269,6 +275,26 @@ export function Pp5ClassSelectorForm({ classrooms }: Props) {
                 </div>
               )}
 
+              {selectedRoom && (
+                <div className="space-y-1">
+                  <label htmlFor="pp5-cover-period" className="block text-sm text-zinc-700">สรุปผลการเรียนบนหน้าปก</label>
+                  <select
+                    id="pp5-cover-period"
+                    value={coverPeriod}
+                    onChange={(e) => setCoverPeriodChoice(e.target.value as CoverPeriod)}
+                    className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm"
+                  >
+                    <option value="1">เฉพาะภาคเรียนที่ 1</option>
+                    <option value="2">เฉพาะภาคเรียนที่ 2</option>
+                    {selectedRoom.is_primary && <option value="annual">ทั้งปี (รวมภาคเรียนที่ 1 และ 2)</option>}
+                  </select>
+                  <p className="text-xs text-zinc-500">
+                    {selectedRoom.is_primary
+                      ? "เปลี่ยนเฉพาะตารางสรุปผลการเรียนหน้าปก ส่วนอื่นยังเป็นข้อมูลรายปีตามเดิม"
+                      : "มัธยมตัดสินรายภาค ใช้รายวิชาและนักเรียนของภาคเรียนที่เลือก"}
+                  </p>
+                </div>
+              )}
               <p className="text-xs text-zinc-500">
                 รวมทุกวิชา · ทุกการประเมิน · 1 ห้อง = 1 เล่ม
               </p>
@@ -367,7 +393,7 @@ export function Pp5ClassSelectorForm({ classrooms }: Props) {
               // before the preview finishes can print an incomplete page
               // OR the previously cached preview. User spec 2026-05-20:
               // "ขณะที่รอโหลดพรีวิว ห้ามให้กดปุ่มพิมพ์รายงาน".
-              disabled={!canPreview || isLoading}
+              disabled={!canPreview || isLoading || iframeSrc !== previewSrc}
               className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Printer className="size-4" aria-hidden />

@@ -13,9 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 //   d. นักเรียน dropdown — only when รายบุคคล
 //   e. ช่วงเวลา — PRIMARY only: ภาคเรียนที่ 1 | 2 | สรุปทั้งปี (→ semester
 //      = 1 | 2 | annual). Secondary hides this (always current semester).
-//   f. แสดงอันดับ (เรียงตามเกรดเฉลี่ย) — checkbox (rank=1 default on).
-//      ON → students ordered by GPA desc + "ได้อันดับที่ N" suffix shown.
-//      OFF → order by เลขที่, suffix omitted.
+//   f. Show GPA rank (default on), without changing student-number order.
 //
 // URL built:
 //   /reports/pp6?classroom=<roomId>&semester=<1|2|annual>
@@ -108,9 +106,7 @@ export function Pp6SelectorForm({ classrooms }: Props) {
   // URL stays clean (server overrides anyway).
   const [semester, setSemester] = useState<Semester>("1");
 
-  // ───────── แสดงอันดับ (เรียงตามเกรดเฉลี่ย) ─────────
-  // Default ON → students ordered by GPA desc + อันดับ suffix shown. OFF →
-  // order by เลขที่ and hide the อันดับ suffix.
+  // Show rank by default; printing order always follows student numbers.
   const [showRank, setShowRank] = useState(true);
 
   // A selection is print-ready once a room is chosen, and — in รายบุคคล
@@ -363,7 +359,7 @@ export function Pp6SelectorForm({ classrooms }: Props) {
                     onChange={(e) => setShowRank(e.target.checked)}
                     className="size-4"
                   />
-                  แสดงอันดับ (เรียงตามเกรดเฉลี่ย)
+                  แสดงอันดับในห้อง (พิมพ์ตามเลขที่)
                 </label>
               </div>
 

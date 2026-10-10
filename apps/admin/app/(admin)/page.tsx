@@ -614,8 +614,20 @@ export default async function Dashboard() {
         </section>
       )}
 
-      {/* Version indicator — always shows current version + update status.
-          Suspense so the GitHub version check never blocks the dashboard. */}
+      {isAdmin && currentYear && (
+        <section className="mb-8 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <h2 className="font-semibold text-blue-900">ความคืบหน้าการบันทึกเวลาเรียน</h2>
+          <p className="mt-1 text-sm text-blue-800">ดูสรุปรายวันและรายวิชา ระบบจะโหลดข้อมูลเมื่อกดดูเท่านั้น</p>
+          <Link
+            href="/attendance-progress"
+            prefetch={false}
+            className="mt-3 inline-flex rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            ดูความคืบหน้าการบันทึกเวลาเรียน
+          </Link>
+        </section>
+      )}
+      {/* Version check streams independently of the dashboard. */}
       <Suspense fallback={null}>
         <VersionStatus />
       </Suspense>

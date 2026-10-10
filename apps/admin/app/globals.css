@@ -658,6 +658,7 @@
 }
 .pp5-cover-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   border: 1px solid #18181b;
   margin-bottom: 0.5rem;
@@ -677,7 +678,6 @@
 }
 .pp5-cover-rowhead {
   background: #f4f4f5 !important;
-  width: 58px;
   font-size: 10px !important;
 }
 .pp5-cover-group {
@@ -718,6 +718,7 @@
 }
 .pp5-cover-sig-name {
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 .pp5-cover-sig-decision {
   text-align: left;
@@ -872,6 +873,13 @@
 }
 .pp6-sig-block p {
   margin: 0;
+}
+.pp6-summary-right--with-deputy {
+  gap: 0.5rem;
+  line-height: 1.4;
+}
+.pp6-sig-block {
+  break-inside: avoid;
 }
 .pp6-sig-line {
   margin-bottom: 0.1rem !important;

@@ -25,6 +25,7 @@ import {
 } from "@/lib/subject-attendance-link";
 import { getTeacherScope } from "@/lib/teacher-scope";
 import { attendanceStudentNameClass } from "../_shared/student-name-fit";
+import { numericCoverResult } from "@/lib/pp5-subject-cover";
 
 export async function generateMetadata({
   searchParams,
@@ -645,8 +646,8 @@ export default async function Pp5Page({ searchParams }: Props) {
     g15: number;
     g1: number;
     g0: number;
-    rr: number; // ร = รอผลการเรียน (not auto-computed yet)
-    ms: number; // มส = ไม่มีสิทธิ์ (not auto-computed yet)
+    rr: number; // ร = รอผลการเรียน
+    ms: number; // มส = ไม่มีสิทธิ์
     pass: number; // ผ่านการประเมิน
     fail: number; // ไม่ผ่านการประเมิน
   };
@@ -667,11 +668,12 @@ export default async function Pp5Page({ searchParams }: Props) {
 
   if (subject.grading_mode === "pass_fail") {
     // Fetch grades.pass_fail for this offering + semester
-    const { data: grades } = await supabase
+    const { data: grades, error: activityGradeError } = await supabase
       .from("grades")
       .select("student_id, pass_fail")
       .eq("offering_id", offering.id)
       .eq("grading_period", "semester");
+    if (activityGradeError) throw new Error("ไม่สามารถอ่านผลกิจกรรม กรุณาลองใหม่");
     const passFailMap = new Map<string, "pass" | "fail">();
     for (const g of grades ?? []) {
       if (g.pass_fail === "pass" || g.pass_fail === "fail") {
@@ -688,6 +690,7 @@ export default async function Pp5Page({ searchParams }: Props) {
     }
     const coverPayload = {
       info: headerInfo,
+      isActivity: true,
       studentCount: students.length,
       gradeBuckets: pfBuckets,
       charDistribution,
@@ -836,6 +839,7 @@ export default async function Pp5Page({ searchParams }: Props) {
   let primaryBundles: { sem1: SemScoreBundle; sem2: SemScoreBundle } | null =
     null;
   let secondaryBundle: SemScoreBundle | null = null;
+  let statusOfferingId = offering.id;
 
   // Attendance (weekly grid + summary) per semester to render. PRIMARY shows
   // BOTH semesters (user spec 2026-06-01); SECONDARY shows only the URL
@@ -850,6 +854,8 @@ export default async function Pp5Page({ searchParams }: Props) {
       ensureOfferingId(classroomId, subjectId, 1),
       ensureOfferingId(classroomId, subjectId, 2),
     ]);
+    // Annual status is saved against the semester-1 anchor by SummarySection.
+    statusOfferingId = sem1Id;
     const [sem1Bundle, sem2Bundle, sem1Att, sem2Att] = await Promise.all([
       loadSemBundle(sem1Id, true),
       loadSemBundle(sem2Id, true),
@@ -925,28 +931,14 @@ export default async function Pp5Page({ searchParams }: Props) {
   //   - PRIMARY  : annual grade = cutGrade(avg(sem1, sem2), scales)
   //   - SECONDARY: semester grade = cutGrade(sem1 total, scales)
   const numericBuckets: GradeBuckets = { ...emptyGradeBuckets };
-  const bucketKeyFor = (
-    grade: number,
-  ):
-    | "g4"
-    | "g35"
-    | "g3"
-    | "g25"
-    | "g2"
-    | "g15"
-    | "g1"
-    | "g0"
-    | null => {
-    // grade_scales uses .5 steps — map to one of 8 buckets
-    if (grade >= 3.75) return "g4";
-    if (grade >= 3.25) return "g35";
-    if (grade >= 2.75) return "g3";
-    if (grade >= 2.25) return "g25";
-    if (grade >= 1.75) return "g2";
-    if (grade >= 1.25) return "g15";
-    if (grade >= 0.75) return "g1";
-    return "g0";
-  };
+  const { data: statusRows, error: statusError } = await supabase
+    .from("grades")
+    .select("student_id, is_incomplete, is_no_eligibility")
+    .eq("offering_id", statusOfferingId)
+    .eq("grading_period", isPrimary ? "annual" : "semester");
+  // Never silently print numeric passes if reading special statuses fails.
+  if (statusError) throw new Error("ไม่สามารถอ่านสถานะ ร/มส กรุณาลองใหม่");
+  const statusByStudent = new Map((statusRows ?? []).map(row => [row.student_id, row]));
   for (const s of students) {
     let grade: number;
     if (isPrimary && primaryBundles) {
@@ -958,8 +950,10 @@ export default async function Pp5Page({ searchParams }: Props) {
     } else {
       continue;
     }
-    const key = bucketKeyFor(grade);
-    if (key) numericBuckets[key]++;
+    const result = numericCoverResult(grade, statusByStudent.get(s.id));
+    numericBuckets[result.bucket]++;
+    if (result.passed) numericBuckets.pass++;
+    else numericBuckets.fail++;
   }
 
   const coverPayload = {
@@ -1164,12 +1158,14 @@ function pct(count: number, total: number): string {
 
 function Pp5Cover({
   info,
+  isActivity = false,
   studentCount,
   gradeBuckets,
   charDistribution,
   rtDistribution,
 }: {
   info: HeaderInfo;
+  isActivity?: boolean;
   studentCount: number;
   gradeBuckets: GradeBuckets;
   charDistribution: { d3: number; d2: number; d1: number; d0: number };
@@ -1179,6 +1175,8 @@ function Pp5Cover({
   const unchecked = "☐";
   const isCore = info.subjectCategory === "core";
   const isAdditional = info.subjectCategory === "additional";
+  const assessmentOfficerName = info.assessmentOfficerName?.trim();
+  const deputyDirectorName = info.deputyDirectorName?.trim();
   // Filler for empty value lines (admin writes by hand on print)
   const blank = "..............................";
 
@@ -1304,7 +1302,36 @@ function Pp5Cover({
 
       {/* สรุปผลการเรียน — grade distribution */}
       <h3 className="pp5-cover-section">สรุปผลการเรียน</h3>
+      {isActivity ? (
+        <table className="pp5-cover-table">
+          <thead>
+            <tr>
+              <th>จำนวนนักเรียน</th>
+              <th>ผ่าน</th>
+              <th>ไม่ผ่าน</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{studentCount}</td>
+              <td>{gradeBuckets.pass}</td>
+              <td>{gradeBuckets.fail}</td>
+            </tr>
+            <tr>
+              <td className="pp5-cover-pctlabel">ร้อยละ</td>
+              <td>{pct(gradeBuckets.pass, studentCount)}</td>
+              <td>{pct(gradeBuckets.fail, studentCount)}</td>
+            </tr>
+          </tbody>
+        </table>
+      ) : (
       <table className="pp5-cover-table">
+        <colgroup>
+          <col style={{ width: "10%" }} />
+          {Array.from({ length: 10 }, (_, i) => <col key={i} style={{ width: "7%" }} />)}
+          <col style={{ width: "10%" }} />
+          <col style={{ width: "10%" }} />
+        </colgroup>
         <thead>
           <tr>
             <th rowSpan={2} className="pp5-cover-rowhead">
@@ -1356,7 +1383,7 @@ function Pp5Cover({
             <td>{gradeBuckets.fail}</td>
           </tr>
           <tr>
-            <td className="pp5-cover-pctlabel">คิดเป็นร้อยละ</td>
+            <td className="pp5-cover-pctlabel">ร้อยละ</td>
             <td>{pct(gradeBuckets.g4, studentCount)}</td>
             <td>{pct(gradeBuckets.g35, studentCount)}</td>
             <td>{pct(gradeBuckets.g3, studentCount)}</td>
@@ -1373,9 +1400,20 @@ function Pp5Cover({
         </tbody>
       </table>
 
+      )}
+
       {/* สรุปผลการประเมิน — eval distribution */}
       <h3 className="pp5-cover-section">สรุปผลการประเมิน</h3>
       <table className="pp5-cover-table">
+        <colgroup>
+          <col style={{ width: "10%" }} />
+          {Array.from({ length: 12 }, (_, i) => (
+            <col
+              key={i}
+              style={{ width: isActivity ? (i % 6 === 5 ? "11%" : i % 6 === 4 ? "8%" : "6.5%") : "7.5%" }}
+            />
+          ))}
+        </colgroup>
         <thead>
           <tr>
             <th rowSpan={2} className="pp5-cover-rowhead">
@@ -1396,13 +1434,13 @@ function Pp5Cover({
             <th>1</th>
             <th>0</th>
             <th>ผ่าน</th>
-            <th>ไม่ผ่าน</th>
+            <th style={isActivity ? { whiteSpace: "nowrap" } : undefined}>ไม่ผ่าน</th>
             <th>3</th>
             <th>2</th>
             <th>1</th>
             <th>0</th>
             <th>ผ่าน</th>
-            <th>ไม่ผ่าน</th>
+            <th style={isActivity ? { whiteSpace: "nowrap" } : undefined}>ไม่ผ่าน</th>
           </tr>
         </thead>
         <tbody>
@@ -1457,7 +1495,7 @@ function Pp5Cover({
         </tbody>
       </table>
 
-      {/* การอนุมัติผลการเรียน — 3 signers in row */}
+      {/* Equal-width signature blocks; omit an unassigned assessment officer. */}
       <div className="pp5-cover-approval">
         <h4 className="pp5-cover-approval-title">การอนุมัติผลการเรียน</h4>
         <div className="pp5-cover-sig-row">
@@ -1466,6 +1504,13 @@ function Pp5Cover({
             <p className="pp5-cover-sig-name">( {info.teacherLabel} )</p>
             <p>ครูผู้สอน</p>
           </div>
+          {assessmentOfficerName && (
+            <div className="pp5-cover-sig">
+              <p>ลงชื่อ ............................................</p>
+              <p className="pp5-cover-sig-name">( {assessmentOfficerName} )</p>
+              <p>หัวหน้างานวัดและประเมินผล</p>
+            </div>
+          )}
           <div className="pp5-cover-sig">
             <p>ลงชื่อ ............................................</p>
             <p className="pp5-cover-sig-name">
@@ -1473,25 +1518,18 @@ function Pp5Cover({
             </p>
             <p>หัวหน้าวิชาการ</p>
           </div>
-          <div className="pp5-cover-sig">
-            <p>ลงชื่อ ............................................</p>
-            <p className="pp5-cover-sig-name">
-              ( {info.assessmentOfficerName ?? "............................"} )
-            </p>
-            <p>หัวหน้างานวัดและประเมินผล</p>
-          </div>
         </div>
       </div>
 
       {/* เสนอเพื่อพิจารณา */}
-      {info.deputyDirectorName && (
+      {deputyDirectorName && (
         <div className="pp5-cover-approval">
           <h4 className="pp5-cover-approval-title">เสนอเพื่อพิจารณา</h4>
           <div className="pp5-cover-sig-row">
             <div className="pp5-cover-sig">
               <p>ลงชื่อ ............................................</p>
               <p className="pp5-cover-sig-name">
-                ( {info.deputyDirectorName} )
+                ( {deputyDirectorName} )
               </p>
               <p>รองผู้อำนวยการโรงเรียน</p>
             </div>
@@ -1511,7 +1549,7 @@ function Pp5Cover({
       {/* No deputy director — single ผอ. signature with decision,
           centered instead of stretching full-width (user spec
           2026-06-08: "จัดกึ่งกลางจะสวยครับ") */}
-      {!info.deputyDirectorName && (
+      {!deputyDirectorName && (
         <div className="pp5-cover-approval">
           <h4 className="pp5-cover-approval-title">เสนอเพื่อพิจารณา</h4>
           <div className="pp5-cover-sig-row pp5-cover-sig-row--single">

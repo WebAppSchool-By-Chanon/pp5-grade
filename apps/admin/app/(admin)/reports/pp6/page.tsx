@@ -66,9 +66,7 @@ type Props = {
     /** "all" | "individual". `student` presence is what actually decides
      *  single vs. all; this is passed through for URL clarity. */
     scope?: string;
-    /** "1" (default) → order rendered students by GPA descending and show
-     *  the "ได้อันดับที่ N ของห้อง" suffix. "0" → order by เลขที่
-     *  (student_number) and omit the อันดับ suffix. */
+    /** Show GPA rank when "1" (default); never change student-number order. */
     rank?: string;
     /** "1" → rendered inside the selector's preview iframe. Otherwise the
      *  page renders the <Pp6SelectorForm> instead of the report. */
@@ -93,9 +91,9 @@ function fmtWeight(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
-/** Format a grade level value (0..4 in .5 steps) — always 1 decimal. */
+/** Integer grade levels have no decimal; retain genuine half grades. */
 function fmtGradeLevel(g: number): string {
-  return g % 1 === 0 ? `${g}.0` : g.toFixed(1);
+  return Number.isInteger(g) ? String(g) : g.toFixed(1);
 }
 
 type NumericSubject = {
@@ -138,8 +136,7 @@ export default async function Pp6Page({ searchParams }: Props) {
   const onlyStudentId =
     scopeMode === "all" ? null : params.student?.trim() || null;
   // แสดงอันดับ — default ON. Only "0" turns it off.
-  //   ON  → render students GPA-descending + show "ได้อันดับที่ N ของห้อง".
-  //   OFF → render students by เลขที่ (student_number) + omit the suffix.
+  // Toggle the rank suffix only, never the printing order.
   const showRank = params.rank?.trim() !== "0";
 
   const scopeRaw = params.semester?.trim();
@@ -202,8 +199,7 @@ export default async function Pp6Page({ searchParams }: Props) {
   //    the current term. One page per enrolled student (unless `student`
   //    narrows to one).
   const enrollmentSemester: 0 | 1 | 2 = isPrimary ? 0 : secondarySemester;
-  // Always fetch by student_number ascending — this is the rank=0 render
-  // order, and a deterministic base when rank=1 re-sorts by GPA below.
+  // Honor the student numbering configured by the school in both rank modes.
   const { data: enrolls } = await supabase
     .from("enrollments")
     .select(
@@ -697,19 +693,15 @@ export default async function Pp6Page({ searchParams }: Props) {
     return gpaDesc.length;
   };
 
-  // 12. Choose which students to render. `computed` is in เลขที่ order
-  //     (the rank=0 render order). When rank is ON, re-sort the rendered
-  //     list by GPA descending (ties keep their เลขที่ order via a stable
-  //     sort). The per-student `rankOf` value is independent of this order.
+  // 12. Select students without changing their configured numbering order.
   const base = onlyStudentId
     ? computed.filter((c) => c.id === onlyStudentId)
     : computed;
   if (onlyStudentId && base.length === 0) {
     notFound();
   }
-  const rendered = showRank
-    ? [...base].sort((a, b) => b.gpa - a.gpa)
-    : base;
+  // Rank is informational only; retain the school's student-number order.
+  const rendered = base;
 
   // HeaderInfo — Pp5Frame only reads `embed`, but the type requires a full
   // object. Populate the fields ปพ.6 actually uses; empties for the rest.
@@ -766,6 +758,7 @@ export default async function Pp6Page({ searchParams }: Props) {
           homeroomNames={homeroomNames}
           directorName={directorName}
           directorTitle={directorTitle}
+          deputyDirectorName={school?.deputy_director_name?.trim() || null}
         />
       ))}
     </Pp5Frame>
@@ -801,6 +794,7 @@ function Pp6StudentPage({
   homeroomNames,
   directorName,
   directorTitle,
+  deputyDirectorName,
 }: {
   student: {
     id: string;
@@ -834,6 +828,7 @@ function Pp6StudentPage({
   homeroomNames: string[];
   directorName: string;
   directorTitle: string;
+  deputyDirectorName: string | null;
 }) {
   const totalWeight = student.coreWeight + student.additionalWeight;
   // PRIMARY total INCLUDES activity hours (core + additional + activity);
@@ -1077,7 +1072,7 @@ function Pp6StudentPage({
             </tbody>
           </table>
         </div>
-        <div className="pp6-summary-right">
+        <div className={`pp6-summary-right${deputyDirectorName ? " pp6-summary-right--with-deputy" : ""}`}>
           <div className="pp6-sig-block">
             <p className="pp6-sig-line">
               {homeroomNames.length > 1
@@ -1087,6 +1082,13 @@ function Pp6StudentPage({
             <p>( {homeroomJoined} )</p>
             <p>ครูประจำชั้น{gradeName}</p>
           </div>
+          {deputyDirectorName && (
+            <div className="pp6-sig-block">
+              <p className="pp6-sig-line">..................................</p>
+              <p>( {deputyDirectorName} )</p>
+              <p>รองผู้อำนวยการโรงเรียน</p>
+            </div>
+          )}
           <div className="pp6-sig-block">
             <p className="pp6-sig-line">..................................</p>
             <p>( {directorName} )</p>

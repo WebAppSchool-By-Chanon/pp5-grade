@@ -69,6 +69,7 @@ function setCell(
 async function fetchAllManualRows(
   offeringId: string,
   studentIds: string[],
+  strict = false,
 ): Promise<ManualRow[]> {
   if (studentIds.length === 0) return [];
   const supabase = await createClient();
@@ -83,7 +84,9 @@ async function fetchAllManualRows(
       .in("student_id", studentIds)
       .order("week", { ascending: true })
       .order("slot_in_week", { ascending: true })
+      .order("student_id", { ascending: true })
       .range(from, from + pageSize - 1);
+    if (error && strict) throw new Error(error.message);
     if (error || !data || data.length === 0) break;
     rows.push(...(data as ManualRow[]));
     if (data.length < pageSize) break;
@@ -96,6 +99,7 @@ async function fetchAllDailyRows(
   classroomId: string,
   studentIds: string[],
   dates: Set<string>,
+  strict = false,
 ): Promise<DailyRow[]> {
   if (studentIds.length === 0 || dates.size === 0) return [];
   const sortedDates = Array.from(dates).sort();
@@ -114,7 +118,9 @@ async function fetchAllDailyRows(
       .gte("date", firstDate)
       .lte("date", lastDate)
       .order("date", { ascending: true })
+      .order("student_id", { ascending: true })
       .range(from, from + pageSize - 1);
+    if (error && strict) throw new Error(error.message);
     if (error || !data || data.length === 0) break;
     rows.push(
       ...(data as DailyRow[]).filter(
@@ -142,6 +148,7 @@ export async function loadLinkedSubjectAttendance({
   slotsPerWeek,
   anchorIso,
   totalWeeks = 20,
+  strict = false,
 }: {
   offeringId: string;
   classroomId: string;
@@ -149,6 +156,8 @@ export async function loadLinkedSubjectAttendance({
   slotsPerWeek: number;
   anchorIso: string;
   totalWeeks?: number;
+  /** Progress summaries must not silently treat failed reads as empty data. */
+  strict?: boolean;
 }): Promise<LinkedAttendanceResult> {
   const supabase = await createClient();
   const [slotResult, overrideResult, manualRows] = await Promise.all([
@@ -160,7 +169,7 @@ export async function loadLinkedSubjectAttendance({
       .from("subject_schedule_overrides")
       .select("week, slot_in_week, session_date")
       .eq("offering_id", offeringId),
-    fetchAllManualRows(offeringId, studentIds),
+    fetchAllManualRows(offeringId, studentIds, strict),
   ]);
 
   const schemaReady = !slotResult.error && !overrideResult.error;
@@ -211,7 +220,7 @@ export async function loadLinkedSubjectAttendance({
 
   const requestedDates = new Set(sessionDates.values());
   const dailyRows = schemaReady
-    ? await fetchAllDailyRows(classroomId, studentIds, requestedDates)
+    ? await fetchAllDailyRows(classroomId, studentIds, requestedDates, strict)
     : [];
   const dailyByStudentDate = new Map<string, LinkedAttendanceStatus>();
   for (const row of dailyRows) {

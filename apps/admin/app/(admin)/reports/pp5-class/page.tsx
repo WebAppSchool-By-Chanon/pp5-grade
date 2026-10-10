@@ -18,11 +18,11 @@ import { EvalSection } from "../pp5/page";
 import type { Metadata } from "next";
 import { withSchoolPrefix } from "@/lib/school-name";
 import {
-  currentTermSuffix,
   reportClassroomLabel,
   reportRoomSuffix,
 } from "@/lib/current-term";
 import { getTeacherScope } from "@/lib/teacher-scope";
+import { coverScore, resolveCoverPeriod } from "@/lib/pp5-cover-period";
 import {
   Pp5ClassSelectorForm,
   type ClassroomOption,
@@ -36,10 +36,13 @@ export async function generateMetadata({
   // Embed = the print iframe → its document.title becomes the saved-PDF
   // filename, so name it "<งาน> <ภาคเรียน/ปี>". User spec 2026-05-31.
   if (p.embed !== "1") return {};
-  const [suffix, room] = await Promise.all([
-    currentTermSuffix(),
+  const db = await createClient();
+  const [context, room] = await Promise.all([
+    db.from("classrooms").select("grade:grade_levels!grade_level_id(system), year:academic_years!academic_year_id(year_be, current_semester)").eq("id", p.classroom ?? "").maybeSingle(),
     reportClassroomLabel(p.classroom),
   ]);
+  const period = resolveCoverPeriod(p.cover_period, context.data?.grade?.system === "primary", context.data?.year?.current_semester ?? 1);
+  const suffix = `${period === "annual" ? "ทั้งปี" : `ภาคเรียนที่ ${period}`} ปีการศึกษา ${context.data?.year?.year_be ?? ""}`;
   return { title: ["ปพ.5 รวมชั้น", room, suffix].filter(Boolean).join(" ") };
 }
 
@@ -61,6 +64,7 @@ type Props = {
     parts?: string;
     /** "1" → render WITHOUT admin chrome (used by iframe preview). */
     embed?: string;
+    cover_period?: string;
   }>;
 };
 
@@ -194,9 +198,11 @@ export default async function Pp5ClassPage({ searchParams }: Props) {
   const isPrimary = classroom.grade_level.system === "primary";
   const yearId = classroom.academic_year.id;
   const yearBe = classroom.academic_year.year_be;
-  const semester: 1 | 2 = (classroom.academic_year.current_semester ?? 1) as
-    | 1
-    | 2;
+  const coverPeriod = resolveCoverPeriod(params.cover_period, isPrimary, classroom.academic_year.current_semester ?? 1);
+  const coverPeriodLabel = coverPeriod === "annual" ? "ทั้งปี (ภาคเรียนที่ 1 และ 2)" : `ภาคเรียนที่ ${coverPeriod}`;
+  const semester: 1 | 2 = !isPrimary
+    ? (coverPeriod === "2" ? 2 : 1)
+    : classroom.academic_year.current_semester === 2 ? 2 : 1;
   const classLabel = `ชั้น${classroom.grade_level.name_th}${await reportRoomSuffix(classroomId)}`;
 
   // 3. Enrollments — primary uses semester=0 (annual), secondary uses
@@ -831,6 +837,36 @@ export default async function Pp5ClassPage({ searchParams }: Props) {
     grade: number;
   }>;
 
+  // Compute the cover distribution from the same recorded scores/scales as
+  // the score report. Do not depend on an annual grade row existing when
+  // the school is submitting term 1. Identify terms explicitly, not by row order.
+  const offeringSemester = new Map((offeringsResult.data ?? []).map(o => [o.id, o.semester]));
+  const coverSummaries = subjectSummaries.map(summary => {
+    if (summary.subject.grading_mode !== "numeric") return summary;
+    const buckets = new Map<number, number>(GRADE_BUCKETS.map(g => [g, 0]));
+    let rOrMsCount = 0;
+    const byTerm = (term: number) => summary.subject.offeringIds.find(id => offeringSemester.get(id) === term);
+    const term1 = byTerm(1);
+    const term2 = byTerm(2);
+    for (const studentId of studentIds) {
+      const relevantIds = coverPeriod === "annual" ? [term1, term2] : [coverPeriod === "1" ? term1 : term2];
+      const periodRows = (gradeRows ?? []).filter(r => r.student_id === studentId && relevantIds.includes(r.offering_id) && r.grading_period === (coverPeriod === "annual" ? "annual" : "semester"));
+      if (periodRows.some(r => r.is_incomplete || r.is_no_eligibility)) {
+        rOrMsCount++;
+        continue;
+      }
+      const total = (offeringId: string | undefined): number | null => {
+        const scores = offeringId ? scoresByOffering.get(offeringId)?.get(studentId) : undefined;
+        return scores && Object.keys(scores).length ? Object.values(scores).reduce((sum, n) => sum + n, 0) : null;
+      };
+      const score = coverScore(coverPeriod, total(term1), total(term2));
+      if (score == null) continue;
+      const grade = cutGrade(score, scales);
+      buckets.set(grade, (buckets.get(grade) ?? 0) + 1);
+    }
+    return { ...summary, buckets, rOrMsCount };
+  });
+
   // Students with full schema needed for score components (adds
   // student_code which the score tables print as เลขประจำตัว)
   const studentsForScore = (enrolls ?? [])
@@ -927,7 +963,8 @@ export default async function Pp5ClassPage({ searchParams }: Props) {
             yearBe={yearBe}
             totalHoursPerYear={totalHoursPerYear}
             homeroomNames={homeroomNames}
-            subjectSummaries={subjectSummaries}
+            subjectSummaries={coverSummaries}
+            coverPeriodLabel={coverPeriodLabel}
             studentCount={studentIds.length}
             maleCount={maleCount}
             femaleCount={femaleCount}
@@ -1457,6 +1494,7 @@ function Pp5ClassCover({
   school,
   classLabel,
   yearBe,
+  coverPeriodLabel,
   totalHoursPerYear,
   homeroomNames,
   subjectSummaries,
@@ -1485,6 +1523,7 @@ function Pp5ClassCover({
     | null;
   classLabel: string;
   yearBe: number;
+  coverPeriodLabel: string;
   totalHoursPerYear: number;
   homeroomNames: string[];
   subjectSummaries: Array<{
@@ -1597,7 +1636,7 @@ function Pp5ClassCover({
             <th rowSpan={2}>รายวิชา</th>
             <th rowSpan={2}>จำนวนนักเรียน</th>
             <th colSpan={GRADE_BUCKETS.length}>
-              สรุปผลการเรียน
+              สรุปผลการเรียน · {coverPeriodLabel}
               <br />
               <span className="pp5-class-subhead">
                 จำนวนนักเรียนที่ได้รับผลการเรียน
@@ -1858,7 +1897,7 @@ async function Pp5ClassSelector() {
   // 2026-05-20: "ห้อง ป.1/1 ถึงมี 2 อัน".
   const { data: currentYear } = await supabase
     .from("academic_years")
-    .select("id")
+    .select("id, current_semester")
     .eq("is_current", true)
     .maybeSingle();
 
@@ -1878,7 +1917,7 @@ async function Pp5ClassSelector() {
       `
       id,
       room_number,
-      grade_level:grade_levels!grade_level_id (id, name_th, name_short, sort_order)
+      grade_level:grade_levels!grade_level_id (id, name_th, name_short, sort_order, system)
     `,
     )
     .eq("academic_year_id", currentYear.id)
@@ -1915,10 +1954,11 @@ async function Pp5ClassSelector() {
       grade_id: c.grade_level!.id,
       grade_label: short,
       grade_sort: c.grade_level!.sort_order ?? 0,
+      is_primary: c.grade_level!.system === "primary",
     };
   });
 
-  return <Pp5ClassSelectorForm classrooms={opts} />;
+  return <Pp5ClassSelectorForm classrooms={opts} currentSemester={currentYear.current_semester ?? 1} />;
 }
 
 function notFoundPage(message: string) {
